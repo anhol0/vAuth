@@ -10,9 +10,6 @@ The credential database is stored at `/var/lib/vauth/credentials.v1`. vAuth
 supports resident and non-resident credentials, user presence and verification,
 self-attestation, and TPM-backed assertion signing.
 
-See [ROADMAP.md](ROADMAP.md) for work remaining before using vAuth with
-production credentials.
-
 ## Build and test
 
 The build requires CMake, a C++20 compiler, pkg-config, TinyCBOR, OpenSSL,
