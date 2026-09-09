@@ -89,7 +89,6 @@ std::vector<uint8_t> CTAPMakeCredentialRequest::build_response(
     }
 
     // User Verification
-    // Not cryptographically secure, but fine for now
     for(auto [name, option] : options) {
         if(name == "uv" && option == true) {
             const auto verification = user_interaction.request_verification(

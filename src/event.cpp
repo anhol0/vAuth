@@ -431,7 +431,7 @@ void run(
                             } catch (const UserActionTimedOut&) {
                                 result.packet = make_cbor_error(
                                     result.cid,
-                                    CTAPError::CTAP2_ERR_USER_ACTION_TIMEOUT
+                                    CTAPError::CTAP2_ERR_OPERATION_DENIED
                                 );
                             } catch (const std::exception&) {
                                 result.packet = make_cbor_error(
