@@ -86,9 +86,9 @@ CAllocatedString session_for_peer(pid_t pid, uid_t uid) {
     char* raw_session = nullptr;
     int result = sd_pid_get_session(pid, &raw_session);
     if(result < 0) {
-        result = sd_uid_get_display(uid, &raw_session);
-        if(result < 0)
-            throw_login_error(result, "resolve agent login session");
+        // When no local user session is installed - reject the connection
+        // Remote sessions cannot be trusted
+        throw_login_error(result, "resolve agent login session");
     }
     if(raw_session == nullptr || raw_session[0] == '\0') {
         std::free(raw_session);
