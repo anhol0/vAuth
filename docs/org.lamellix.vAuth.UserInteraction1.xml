@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE node PUBLIC
+  "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+  "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node name="/org/lamellix/vAuth">
+  <interface name="org.lamellix.vAuth.UserInteraction1">
+    <method name="RegisterAgent">
+      <arg name="generation" type="t" direction="out"/>
+    </method>
+    <method name="UnregisterAgent"/>
+    <method name="RespondToPresence">
+      <arg name="generation" type="t" direction="in"/>
+      <arg name="requestId" type="t" direction="in"/>
+      <arg name="approved" type="b" direction="in"/>
+    </method>
+    <method name="SubmitPassword">
+      <arg name="generation" type="t" direction="in"/>
+      <arg name="requestId" type="t" direction="in"/>
+      <arg name="passwordPipe" type="h" direction="in"/>
+    </method>
+    <method name="CancelInteraction">
+      <arg name="generation" type="t" direction="in"/>
+      <arg name="requestId" type="t" direction="in"/>
+    </method>
+    <signal name="StateChanged">
+      <arg name="generation" type="t"/>
+      <arg name="requestId" type="t"/>
+      <arg name="state" type="s"/>
+      <arg name="operation" type="s"/>
+      <arg name="relyingPartyId" type="s"/>
+    </signal>
+  </interface>
+</node>

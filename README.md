@@ -54,6 +54,59 @@ Debug builds also produce `build/vauth-agent-debug`, which provides the same
 D-Bus responses through a console interface for diagnostics. Run only one UI
 agent at a time.
 
+## Custom user-interaction agents
+
+The bundled Slint UI is not the only supported user-interaction agent. Local
+applications may implement the public system-bus interface
+`org.lamellix.vAuth.UserInteraction1` at `/org/lamellix/vAuth` on the
+`org.lamellix.vAuth` service. The interface is versioned; agents must use the
+method and signal signatures for the advertised interface name rather than
+assuming that a future version is compatible.
+
+The complete wire protocol, state machine, error behavior, and security
+requirements are documented in [`docs/agent-api.md`](docs/agent-api.md). A
+machine-readable introspection definition is available at
+[`docs/org.lamellix.vAuth.UserInteraction1.xml`](docs/org.lamellix.vAuth.UserInteraction1.xml),
+and minimal C++, Python, and Go implementations are in
+[`examples/agents/`](examples/agents/).
+
+Call `RegisterAgent()` once on a D-Bus connection before handling interactions.
+It returns a nonzero `generation`. The daemon sends that connection targeted
+`StateChanged(generation, requestId, state, operation, relyingPartyId)` signals.
+Reply with `RespondToPresence(generation, requestId, approved)`,
+`SubmitPassword(generation, requestId, passwordPipe)`, or
+`CancelInteraction(generation, requestId)` as appropriate. `UnregisterAgent()`
+has no arguments. Each request ID is nonzero and one-shot; an agent must ignore
+events for another generation or for a request that has already reached a
+terminal state.
+
+Passwords must be written to a newly created one-shot Unix pipe and submitted
+as its read descriptor. They must be at most 1024 bytes, must not contain NUL,
+and must be erased from UI and application buffers immediately after submission.
+An agent must not send passwords in D-Bus strings, run PAM itself, claim that
+verification succeeded, or retain authentication input. Custom graphical agents
+should run unprivileged and disable core dumps just as the bundled UI does.
+
+### Agent trust model
+
+The API is intentionally open to custom agents. The daemon authenticates the
+caller's D-Bus unique name, operating-system UID and PID, and requires an active,
+local, non-remote logind session. It does not authenticate the executable as the
+bundled vAuth UI. Exactly one agent is registered globally: the first eligible
+caller remains the agent until it unregisters, disconnects, or its session stops
+being active. A new registration receives a new generation and invalidates the
+old interaction context.
+
+This means every process in an eligible login session is inside the interaction-
+agent trust boundary. A hostile process could register before the intended UI,
+approve or deny presence requests, suppress the real UI, or present a deceptive
+password prompt. Users should run only trusted custom agents, and deployments
+that do not accept this same-session threat model must restrict registration
+with a narrower D-Bus policy or an additional authorization mechanism. The
+current single-agent design is intended for single-seat use; multi-seat systems
+need additional device-to-session routing before they can safely serve more than
+one simultaneously active local session.
+
 ## Provision database security objects
 
 TPM2-TSS FAPI must be provisioned once for the system. Skip the first command if

@@ -167,7 +167,7 @@ public:
                 std::string(vauth::dbus::UNREGISTER_METHOD)
             ).onInterface(
                 std::string(vauth::dbus::INTERFACE_NAME)
-            ).withArguments(generation_);
+            );
         } catch(...) {
         }
         try {
