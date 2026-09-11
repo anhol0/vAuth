@@ -253,11 +253,9 @@ void read_authorization(
             "service user"
         );
     }
-    if((status.st_mode & (S_IWGRP | S_IWOTH)) != 0) {
-        throw std::runtime_error(
-            "Database authorization credential must not be writable by "
-            "group or others"
-        );
+    if ((status.st_mode & 0700) != 0400) {
+        throw std::runtime_error("Database authorization credential must not "
+                                 "be writable by anybody");
     }
     if(status.st_size < 1 || status.st_size > 34) {
         throw std::runtime_error(

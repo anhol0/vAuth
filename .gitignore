@@ -6,4 +6,5 @@
 vauth_session
 build/
 compile_commands.json
+.clang-format
 ROADMAP.md
