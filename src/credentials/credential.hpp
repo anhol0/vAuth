@@ -90,7 +90,6 @@ public:
         const std::vector<uint8_t>& cred_id,
         uint32_t owner_uid
     );
-    void require_ready() const;
     [[nodiscard]] std::string toHex(const std::vector<uint8_t>& v) const;
     [[nodiscard]] std::vector<uint8_t> fromHex(const std::string& s) const;
 
@@ -107,6 +106,7 @@ private:
         const std::vector<uint8_t>& plaintext,
         uint64_t generation
     ) const;
+    void require_ready() const;
     void save_storage(const Storage& storage);
     [[nodiscard]] Storage parse_storage(const nlohmann::json& json) const;
 

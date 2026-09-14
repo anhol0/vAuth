@@ -896,7 +896,17 @@ void test_failed_counter_commit_requires_reload_and_recovers() {
     }
     CHECK(failed);
     CHECK(counter.read() == 0);
-    CHECK(!writer.has(make_credential().id, TEST_OWNER_UID));
+
+    bool refused_stale_read = false;
+    try {
+        static_cast<void>(writer.has(
+            make_credential().id,
+            TEST_OWNER_UID
+        ));
+    } catch(const std::runtime_error&) {
+        refused_stale_read = true;
+    }
+    CHECK(refused_stale_read);
 
     bool refused_second_write = false;
     try {
@@ -945,7 +955,17 @@ void test_counter_readback_failure_requires_reload() {
         failed = true;
     }
     CHECK(failed);
-    CHECK(!writer.has(make_credential().id, TEST_OWNER_UID));
+
+    bool refused_stale_read = false;
+    try {
+        static_cast<void>(writer.has(
+            make_credential().id,
+            TEST_OWNER_UID
+        ));
+    } catch(const std::runtime_error&) {
+        refused_stale_read = true;
+    }
+    CHECK(refused_stale_read);
 
     bool refused_second_write = false;
     try {
@@ -999,7 +1019,14 @@ void test_development_clear_recovers_after_counter_failure() {
     }
     CHECK(failed);
     CHECK(counter.read() == 1);
-    CHECK(store.has(credential.id, TEST_OWNER_UID));
+
+    bool refused_stale_read = false;
+    try {
+        static_cast<void>(store.has(credential.id, TEST_OWNER_UID));
+    } catch(const std::runtime_error&) {
+        refused_stale_read = true;
+    }
+    CHECK(refused_stale_read);
 
     CredentialStore reader(temporary.path(), key, &counter);
     reader.load();
