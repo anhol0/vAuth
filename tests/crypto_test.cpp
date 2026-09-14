@@ -45,19 +45,25 @@ public:
     explicit FakeGenerationCounter(uint64_t value = 0) : value_(value) {}
 
     uint64_t read() override {
+        ++readCount;
+        if (failReadCall != 0 && readCount == failReadCall) {
+            throw std::runtime_error("simulated counter read failure");
+        }
         return value_;
     }
 
     void increment() override {
+        if (advanceThenFailNextIncrement) {
+            advanceThenFailNextIncrement = false;
+            advance();
+            throw std::runtime_error(
+                "simulated counter response failure after increment");
+        }
         if(failNextIncrement) {
             failNextIncrement = false;
             throw std::runtime_error("simulated counter increment failure");
         }
-        if(value_ == std::numeric_limits<uint64_t>::max()) {
-            throw std::overflow_error("counter overflow");
-        }
-        ++value_;
-        ++incrementCount;
+        advance();
     }
 
     void set(uint64_t value) {
@@ -65,9 +71,20 @@ public:
     }
 
     bool failNextIncrement = false;
+    bool advanceThenFailNextIncrement = false;
+    std::size_t failReadCall = 0;
+    std::size_t readCount = 0;
     std::size_t incrementCount = 0;
 
 private:
+  void advance() {
+      if (value_ == std::numeric_limits<uint64_t>::max()) {
+          throw std::overflow_error("counter overflow");
+      }
+      ++value_;
+      ++incrementCount;
+  }
+
     uint64_t value_;
 };
 
@@ -895,6 +912,55 @@ void test_failed_counter_commit_requires_reload_and_recovers() {
     CHECK(reader.has(make_credential().id, TEST_OWNER_UID));
 }
 
+void test_counter_increment_response_failure_is_confirmed_by_readback() {
+    TemporaryStore temporary;
+    const std::vector<uint8_t> key(32, 0x65);
+    FakeGenerationCounter counter;
+    counter.advanceThenFailNextIncrement = true;
+
+    CredentialStore writer(temporary.path(), key, &counter);
+    writer.put(make_credential(), TEST_OWNER_UID);
+
+    CHECK(counter.read() == 1);
+    CHECK(counter.incrementCount == 1);
+    CHECK(writer.has(make_credential().id, TEST_OWNER_UID));
+
+    CredentialStore reader(temporary.path(), key, &counter);
+    reader.load();
+    CHECK(reader.has(make_credential().id, TEST_OWNER_UID));
+}
+
+void test_counter_readback_failure_requires_reload() {
+    TemporaryStore temporary;
+    const std::vector<uint8_t> key(32, 0x66);
+    FakeGenerationCounter counter;
+    counter.failNextIncrement = true;
+    counter.failReadCall = 2;
+
+    CredentialStore writer(temporary.path(), key, &counter);
+    bool failed = false;
+    try {
+        writer.put(make_credential(), TEST_OWNER_UID);
+    } catch (const std::runtime_error &) {
+        failed = true;
+    }
+    CHECK(failed);
+    CHECK(!writer.has(make_credential().id, TEST_OWNER_UID));
+
+    bool refused_second_write = false;
+    try {
+        writer.put(make_credential(), TEST_OWNER_UID);
+    } catch (const std::runtime_error &) {
+        refused_second_write = true;
+    }
+    CHECK(refused_second_write);
+
+    CredentialStore reader(temporary.path(), key, &counter);
+    reader.load();
+    CHECK(counter.read() == 1);
+    CHECK(reader.has(make_credential().id, TEST_OWNER_UID));
+}
+
 void test_development_clear_commits_empty_store() {
     TemporaryStore temporary;
     const std::vector<uint8_t> key(32, 0x63);
@@ -1070,6 +1136,11 @@ int main() {
     runner.run("test_rollback_is_rejected", test_rollback_is_rejected);
     runner.run("test_interrupted_commit_is_reconciled_after_authentication", test_interrupted_commit_is_reconciled_after_authentication);
     runner.run("test_failed_counter_commit_requires_reload_and_recovers", test_failed_counter_commit_requires_reload_and_recovers);
+    runner.run(
+        "test_counter_increment_response_failure_is_confirmed_by_readback",
+        test_counter_increment_response_failure_is_confirmed_by_readback);
+    runner.run("test_counter_readback_failure_requires_reload",
+               test_counter_readback_failure_requires_reload);
     runner.run("test_development_clear_commits_empty_store", test_development_clear_commits_empty_store);
     runner.run("test_development_clear_recovers_after_counter_failure", test_development_clear_recovers_after_counter_failure);
     runner.run("test_store_process_lock_rejects_concurrent_owner", test_store_process_lock_rejects_concurrent_owner);
