@@ -977,6 +977,7 @@ bool CredentialStore::has(
     const std::vector<uint8_t>& cred_id,
     uint32_t owner_uid
 ) const {
+    require_ready();
     const auto credential = stored_.find(toHex(cred_id));
     return credential != stored_.end() &&
         credential->second.ownerUid == owner_uid;
@@ -987,6 +988,7 @@ bool CredentialStore::has_for_rp(
     std::string_view rp_id,
     uint32_t owner_uid
 ) const {
+    require_ready();
     const auto credential = stored_.find(toHex(cred_id));
     return credential != stored_.end() &&
         credential->second.ownerUid == owner_uid &&
@@ -997,6 +999,7 @@ void CredentialStore::put(
     const StoredCredential& cred,
     uint32_t owner_uid
 ) {
+    require_ready();
     if(generation_ == std::numeric_limits<uint64_t>::max()) {
         throw std::overflow_error("Credential store generation overflow");
     }
@@ -1033,6 +1036,7 @@ const StoredCredential& CredentialStore::get_by_credId(
     const std::vector<uint8_t>& cred_id,
     uint32_t owner_uid
 ) const {
+    require_ready();
     const auto credential = stored_.find(toHex(cred_id));
     if(
         credential == stored_.end() ||
@@ -1048,6 +1052,7 @@ std::vector<StoredCredential> CredentialStore::find_for_assertion(
     std::span<const PublicKeyCredentialDescriptor> allow_list,
     uint32_t owner_uid
 ) const {
+    require_ready();
     std::vector<StoredCredential> matches;
 
     if(!allow_list.empty()) {
@@ -1098,6 +1103,8 @@ void CredentialStore::incrementSigCount(
     const std::vector<uint8_t>& cred_id,
     uint32_t owner_uid
 ) {
+    require_ready();
+
     const auto credential_id = toHex(cred_id);
     const auto current = stored_.find(credential_id);
     if(
@@ -1114,4 +1121,11 @@ void CredentialStore::incrementSigCount(
     ++updated.at(credential_id).signCount;
     save_storage(updated);
     stored_.swap(updated);
+}
+
+void CredentialStore::require_ready() const {
+    if (requiresReload_) {
+        throw std::runtime_error("Credential store must be reloaded after "
+                                 "an interrupted commit");
+    }
 }
