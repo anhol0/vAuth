@@ -826,9 +826,11 @@ void CredentialStore::save_storage(const Storage& storage) {
                     "Credential store counter did not advance exactly once"
                 );
             }
-        } catch(...) {
+        } catch (...) {
             requiresReload_ = true;
-            throw;
+            if (generationCounter_->read() != next_generation)
+                throw;
+            requiresReload_ = false;
         }
     }
     generation_ = next_generation;
