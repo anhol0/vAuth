@@ -1,15 +1,15 @@
-#include <exception>
+#include "response.hpp"
+#include "authentication/authenticate.hpp"
+#include "cancellation.hpp"
+#include "cbor_operations/cbor.hpp"
+#include "device.hpp"
+#include "error.hpp"
+#include "registration/registration.hpp"
+#include "uhid_report.hpp"
 #include <cstdint>
+#include <exception>
 #include <utility>
 #include <vector>
-#include "response.hpp"
-#include "cancellation.hpp"
-#include "error.hpp"
-#include "device.hpp"
-#include "uhid_report.hpp"
-#include "cbor_operations/cbor.hpp"
-#include "registration/registration.hpp"
-#include "authentication/authenticate.hpp"
 
 constexpr uint8_t CAPABILITY_WINK = 0x01;
 constexpr uint8_t CAPABILITY_CBOR = 0x04;
@@ -87,6 +87,9 @@ CTAPPacket handle_cbor(
     }
     // Payload generation
     if(command == 0x04) {              // authenticatorGetInfo
+        if (request.payload.size() != 1)
+            return make_cbor_error(request.cid,
+                                   CTAPError::CTAP1_ERR_INVALID_COMMAND);
         try {
             payload = build_getinfo_response();
         } catch(const CborEncodingError& error) {
@@ -193,6 +196,10 @@ CTAPPacket handle_cbor(
                     CTAPError::CTAP2_ERR_NOT_ALLOWED
                 );
             }
+
+            if (request.payload.size() != 1)
+                return make_cbor_error(request.cid,
+                                       CTAPError::CTAP1_ERR_INVALID_COMMAND);
 
             try {
                 payload = gar.build_response_next(
