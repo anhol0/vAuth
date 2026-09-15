@@ -963,13 +963,11 @@ void CredentialStore::load() {
     requiresReload_ = false;
 }
 
-#ifdef VAUTH_DEVELOPMENT_BUILD
 void CredentialStore::clear() {
     Storage empty;
     save_storage(empty);
     stored_.swap(empty);
 }
-#endif
 
 // Public API
 

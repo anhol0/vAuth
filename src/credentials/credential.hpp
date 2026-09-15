@@ -63,9 +63,7 @@ public:
     );
     ~CredentialStore();
     void load();
-#ifdef VAUTH_DEVELOPMENT_BUILD
     void clear();
-#endif
 
     [[nodiscard]] bool has(
         const std::vector<uint8_t>& cred_id,
