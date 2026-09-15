@@ -8,7 +8,7 @@
 
 #include <tss2/tss2_fapi.h>
 
-#include "credentials/credential.hpp"
+#include "storage/gemeration_counter.hpp"
 
 class FapiStoreSecurity final : public StoreGenerationCounter {
 public:

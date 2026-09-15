@@ -1,5 +1,6 @@
 #pragma once
 
+#include "storage/gemeration_counter.hpp"
 #include <cstdint>
 #include <filesystem>
 #include <span>
@@ -30,13 +31,6 @@ struct StoredCredential {
     std::vector<uint8_t> public_blob;
     bool discoverable = false;
     uint64_t creationOrder = 0;
-};
-
-class StoreGenerationCounter {
-public:
-    virtual ~StoreGenerationCounter() = default;
-    [[nodiscard]] virtual uint64_t read() = 0;
-    virtual void increment() = 0;
 };
 
 class CredentialStoreLock {
