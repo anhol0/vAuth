@@ -138,7 +138,7 @@ material separately: clearing the TPM or losing this authorization makes the
 database unrecoverable. The example service configuration is available at
 [`config/vauth.service.example`](config/vauth.service.example).
 
-For local development, pass a mode-`0600` authorization file directly:
+For local development, pass a mode-`0400` authorization file directly:
 
 ```sh
 sudo ./build/vauth provision --auth-file .dev/vauth-db-auth
