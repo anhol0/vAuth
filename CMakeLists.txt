@@ -22,6 +22,12 @@ pkg_check_modules(TSS2_FAPI REQUIRED tss2-fapi)
 pkg_check_modules(TSS2_RC REQUIRED tss2-rc)
 pkg_check_modules(TSS2_MU REQUIRED tss2-mu)
 
+# Logging library
+add_library(vauth_log
+    ${SOURCE_DIR}/log.cpp
+)
+target_include_directories(vauth_log PUBLIC ${SOURCE_DIR})
+
 # D-Bus library
 add_library(vauth_dbus
     ${SOURCE_DIR}/dbus/agent_registry.cpp
@@ -37,6 +43,7 @@ target_link_libraries(vauth_dbus PUBLIC
     SDBusCpp::sdbus-c++
     PkgConfig::SYSTEMD
 )
+target_link_libraries(vauth_dbus PRIVATE vauth_log)
 
 # Frame processing library
 add_library(ctaphid_frame_processor
@@ -128,6 +135,7 @@ target_link_libraries(${PN} PRIVATE
     vauth_storage
     ctaphid_frame_processor
     ctaphid_packet
+    vauth_log
     vauth_dbus
     uv
 )

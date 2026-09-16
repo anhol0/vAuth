@@ -11,6 +11,7 @@
 #include <optional>
 #include <stdexcept>
 #include <stop_token>
+#include <string>
 #include <sys/poll.h>
 #include <sys/signalfd.h>
 #include <system_error>
@@ -24,6 +25,7 @@
 #include "error.hpp"
 #include "frame_processor.hpp"
 #include "keepalive.hpp"
+#include "log.hpp"
 #include "uhid_report.hpp"
 
 // PACKET STRUCTURE
@@ -35,10 +37,6 @@
 
 namespace {
 #ifdef DEBUG
-    constexpr const char* ANSI_GREEN = "\x1b[32m";
-    constexpr const char* ANSI_BLUE = "\x1b[34m";
-    constexpr const char* ANSI_RESET = "\x1b[0m";
-
     uint8_t ctaphid_command(uint8_t command) noexcept {
         return command & static_cast<uint8_t>(~MASK);
     }
@@ -72,25 +70,26 @@ namespace {
         if(ctaphid_command(packet.cmd) == CTAPHID_KEEPALIVE)
             return;
 
-        std::clog << ANSI_GREEN << "Received "
-                  << ctaphid_command_name(packet.cmd);
+        std::string message = "Received ";
+        message += ctaphid_command_name(packet.cmd);
         if(
             ctaphid_command(packet.cmd) == CTAPHID_CBOR &&
             !packet.payload.empty()
         ) {
-            std::clog << " (" << ctap_command_name(packet.payload.front())
-                      << ')';
+            message += " (";
+            message += ctap_command_name(packet.payload.front());
+            message += ')';
         }
-        std::clog << ANSI_RESET << '\n';
+        vauth::log::debug(vauth::log::Color::green, message);
     }
 
     void log_sent_packet(const CTAPPacket& packet) {
         if(ctaphid_command(packet.cmd) == CTAPHID_KEEPALIVE)
             return;
 
-        std::clog << ANSI_BLUE << "Sent "
-                  << ctaphid_command_name(packet.cmd)
-                  << ANSI_RESET << '\n';
+        std::string message = "Sent ";
+        message += ctaphid_command_name(packet.cmd);
+        vauth::log::debug(vauth::log::Color::blue, message);
     }
 #endif
 

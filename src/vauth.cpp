@@ -22,6 +22,7 @@
 #include "dbus/agent_service.hpp"
 #include "device.hpp"
 #include "event.hpp"
+#include "log.hpp"
 #include "storage/authorization.hpp"
 #include "uv/src/auth.hpp"
 #include "uv/src/auth_handler.hpp"
@@ -197,7 +198,7 @@ int main(int argc, char **argv) {
             shutdown_signal->native_handle());
         return 0;
     } catch (const std::exception &error) {
-        std::cerr << "vauth: " << error.what() << '\n';
+        vauth::log::error("vauth", error.what());
         return 1;
     }
 }

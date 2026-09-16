@@ -4,6 +4,7 @@
 #include "cancellation.hpp"
 #include "constants.hpp"
 #include "interaction_registry.hpp"
+#include "log.hpp"
 #include "secret_pipe.hpp"
 
 #include <sdbus-c++/sdbus-c++.h>
@@ -40,8 +41,9 @@ namespace {
 constexpr std::size_t MAX_ACCOUNT_BUFFER_SIZE = 1024 * 1024;
 constexpr auto AGENT_STARTUP_GRACE = std::chrono::seconds(2);
 #ifdef DEBUG
-constexpr std::string_view ANSI_PURPLE = "\x1b[35m";
-constexpr std::string_view ANSI_RESET = "\x1b[0m";
+void log_dbus(std::string_view message) noexcept {
+    vauth::log::debug(vauth::log::Color::magenta, message);
+}
 #endif
 
 class UniqueFd {
@@ -334,9 +336,7 @@ public:
         interactions_.clear_for(*context);
         static_cast<void>(registry_.unregister_agent(bus_name));
 #ifdef DEBUG
-        std::cerr << ANSI_PURPLE
-                  << "D-Bus: discarded inactive user-interaction agent"
-                  << ANSI_RESET << '\n';
+        log_dbus("D-Bus: discarded inactive user-interaction agent");
 #endif
         return std::nullopt;
     }
@@ -510,9 +510,7 @@ private:
             interactions_.respond_to_presence(user, request_id, approved);
             call.createReply().send();
 #ifdef DEBUG
-            std::cerr << ANSI_PURPLE
-                      << "D-Bus: received RespondToPresence"
-                      << ANSI_RESET << '\n';
+            log_dbus("D-Bus: received RespondToPresence");
 #endif
         } catch(const std::exception& error) {
             try {
@@ -541,9 +539,7 @@ private:
             );
             call.createReply().send();
 #ifdef DEBUG
-            std::cerr << ANSI_PURPLE
-                      << "D-Bus: received SubmitPassword"
-                      << ANSI_RESET << '\n';
+            log_dbus("D-Bus: received SubmitPassword");
 #endif
         } catch(const std::exception& error) {
             try {
@@ -567,9 +563,7 @@ private:
             interactions_.request_cancel(user, request_id);
             call.createReply().send();
 #ifdef DEBUG
-            std::cerr << ANSI_PURPLE
-                      << "D-Bus: received CancelInteraction"
-                      << ANSI_RESET << '\n';
+            log_dbus("D-Bus: received CancelInteraction");
 #endif
         } catch(const std::exception& error) {
             try {
@@ -602,9 +596,10 @@ private:
             reply << context.session->generation;
             reply.send();
 #ifdef DEBUG
-            std::cerr << ANSI_PURPLE
-                      << "D-Bus: registered user-interaction agent for UID "
-                      << context.uid << ANSI_RESET << '\n';
+            log_dbus(
+                "D-Bus: registered user-interaction agent for UID " +
+                std::to_string(context.uid)
+            );
 #endif
         } catch(const std::exception& error) {
             try {
@@ -637,9 +632,7 @@ private:
                 throw std::runtime_error("Calling agent is not registered");
             call.createReply().send();
 #ifdef DEBUG
-            std::cerr << ANSI_PURPLE
-                      << "D-Bus: unregistered user-interaction agent"
-                      << ANSI_RESET << '\n';
+            log_dbus("D-Bus: unregistered user-interaction agent");
 #endif
         } catch(const std::exception& error) {
             try {
@@ -666,9 +659,7 @@ private:
         if(!registry_.unregister_agent(bus_name))
             return;
 #ifdef DEBUG
-        std::cerr << ANSI_PURPLE
-                  << "D-Bus: user-interaction agent disconnected"
-                  << ANSI_RESET << '\n';
+        log_dbus("D-Bus: user-interaction agent disconnected");
 #endif
     }
 
@@ -710,9 +701,10 @@ private:
                 << event.relyingPartyId;
             signal.send();
 #ifdef DEBUG
-            std::cerr << ANSI_PURPLE << "D-Bus: sent StateChanged ("
-                      << user_interaction_state_name(event.state) << ')'
-                      << ANSI_RESET << '\n';
+            std::string message = "D-Bus: sent StateChanged (";
+            message += user_interaction_state_name(event.state);
+            message += ')';
+            log_dbus(message);
 #endif
         }
     }
@@ -788,8 +780,7 @@ private:
             ));
         }
 #ifdef DEBUG
-        std::cerr << ANSI_PURPLE << "D-Bus: service event loop stopped"
-                  << ANSI_RESET << '\n';
+        log_dbus("D-Bus: service event loop stopped");
 #endif
     }
 
