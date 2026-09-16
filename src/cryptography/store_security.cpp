@@ -1,4 +1,5 @@
 #include "store_security.hpp"
+#include "cryptography/tss2_error.hpp"
 
 #include <algorithm>
 #include <array>
@@ -33,18 +34,6 @@ struct SealedMaterial {
 
     std::array<uint8_t, SEALED_MATERIAL_SIZE> bytes{};
 };
-
-[[noreturn]] void throw_fapi_error(TSS2_RC result, const char* operation) {
-    throw std::runtime_error(
-        std::string(operation) + " failed: " + Tss2_RC_Decode(result)
-    );
-}
-
-void fapi_check(TSS2_RC result, const char* operation) {
-    if(result != TSS2_RC_SUCCESS) {
-        throw_fapi_error(result, operation);
-    }
-}
 
 uint64_t decode_uint64(const uint8_t* data, std::size_t size) {
     if(size != COUNTER_SIZE) {
@@ -83,8 +72,8 @@ FapiStoreSecurity::FapiStoreSecurity(std::string_view authorization) {
     );
 
     try {
-        fapi_check(Fapi_Initialize(&context_, nullptr), "Fapi_Initialize");
-        fapi_check(
+        tss_check(Fapi_Initialize(&context_, nullptr), "Fapi_Initialize");
+        tss_check(
             Fapi_SetAuthCB(context_, &FapiStoreSecurity::authorize, this),
             "Fapi_SetAuthCB"
         );
@@ -140,12 +129,12 @@ void FapiStoreSecurity::provision() {
         authorization_.data()
     );
     if(counter_result != TSS2_RC_SUCCESS) {
-        throw_fapi_error(counter_result, "Fapi_CreateNv");
+        throw_tss_error(counter_result, "Fapi_CreateNv");
     }
 
     bool key_created = false;
     try {
-        fapi_check(
+        tss_check(
             Fapi_NvIncrement(context_, COUNTER_PATH),
             "initialize rollback counter"
         );
@@ -161,7 +150,7 @@ void FapiStoreSecurity::provision() {
             &key_raw
         );
         FapiMemory<uint8_t> random_key(key_raw);
-        fapi_check(random_result, "Fapi_GetRandom database key");
+        tss_check(random_result, "Fapi_GetRandom database key");
         if(random_key == nullptr) {
             throw std::runtime_error("Fapi_GetRandom returned no database key");
         }
@@ -171,7 +160,7 @@ void FapiStoreSecurity::provision() {
         OPENSSL_cleanse(random_key.get(), KEY_SIZE);
         encode_uint64(counter_origin, material.bytes.data() + KEY_SIZE);
 
-        fapi_check(
+        tss_check(
             Fapi_CreateSeal(
                 context_,
                 KEY_PATH,
@@ -223,7 +212,7 @@ std::vector<uint8_t> FapiStoreSecurity::unseal_key() {
         &size
     );
     FapiMemory<uint8_t> data(data_raw);
-    fapi_check(result, "Fapi_Unseal database key");
+    tss_check(result, "Fapi_Unseal database key");
     if(size != SEALED_MATERIAL_SIZE || data == nullptr) {
         throw std::runtime_error("Sealed database material has an invalid size");
     }
@@ -243,7 +232,7 @@ std::vector<uint8_t> FapiStoreSecurity::unseal_key() {
 
 TSS2_TCTI_CONTEXT* FapiStoreSecurity::tcti() {
     TSS2_TCTI_CONTEXT* result = nullptr;
-    fapi_check(Fapi_GetTcti(context_, &result), "Fapi_GetTcti");
+    tss_check(Fapi_GetTcti(context_, &result), "Fapi_GetTcti");
     if(result == nullptr) {
         throw std::runtime_error("Fapi_GetTcti returned no TPM transport");
     }
@@ -263,7 +252,7 @@ uint64_t FapiStoreSecurity::read_raw_counter() {
     );
     FapiMemory<uint8_t> data(data_raw);
     FapiMemory<char> log(log_raw);
-    fapi_check(result, "Fapi_NvRead rollback counter");
+    tss_check(result, "Fapi_NvRead rollback counter");
     if(data == nullptr) {
         throw std::runtime_error("TPM rollback counter returned no data");
     }
@@ -287,7 +276,7 @@ uint64_t FapiStoreSecurity::read() {
 }
 
 void FapiStoreSecurity::increment() {
-    fapi_check(
+    tss_check(
         Fapi_NvIncrement(context_, COUNTER_PATH),
         "Fapi_NvIncrement rollback counter"
     );

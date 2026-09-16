@@ -7,9 +7,7 @@
 #include <memory>
 #include <span>
 #include <stdexcept>
-#include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 #include <openssl/crypto.h>
@@ -22,6 +20,7 @@
 #include <tss2/tss2_tpm2_types.h>
 
 #include "cryptography/crypto.hpp"
+#include "cryptography/tss2_error.hpp"
 
 namespace {
 
@@ -73,18 +72,6 @@ public:
 private:
     T& value_;
 };
-
-[[noreturn]] void throw_tpm_error(TSS2_RC result, std::string operation) {
-    throw std::runtime_error(
-        std::move(operation) + " failed: " + Tss2_RC_Decode(result)
-    );
-}
-
-void tpm_check(TSS2_RC result, std::string_view operation) {
-    if(result != TSS2_RC_SUCCESS) {
-        throw_tpm_error(result, std::string(operation));
-    }
-}
 
 std::array<uint8_t, AUTHORIZATION_SIZE> derive_key(
     std::span<const uint8_t> input_key,
@@ -183,7 +170,7 @@ void set_auth(
     CleanseObject cleanse_auth(auth);
     auth.size = static_cast<uint16_t>(authorization.size());
     std::copy(authorization.begin(), authorization.end(), auth.buffer);
-    tpm_check(Esys_TR_SetAuth(context, handle, &auth), "Esys_TR_SetAuth");
+    tss_check(Esys_TR_SetAuth(context, handle, &auth), "Esys_TR_SetAuth");
 }
 
 void validate_credential_id(std::span<const uint8_t> credential_id) {
@@ -200,7 +187,7 @@ void validate_credential_id(std::span<const uint8_t> credential_id) {
 TPM2B_PUBLIC unmarshal_public(std::span<const uint8_t> blob) {
     TPM2B_PUBLIC result{};
     std::size_t offset = 0;
-    tpm_check(
+    tss_check(
         Tss2_MU_TPM2B_PUBLIC_Unmarshal(
             blob.data(), blob.size(), &offset, &result
         ),
@@ -215,7 +202,7 @@ TPM2B_PUBLIC unmarshal_public(std::span<const uint8_t> blob) {
 TPM2B_PRIVATE unmarshal_private(std::span<const uint8_t> blob) {
     TPM2B_PRIVATE result{};
     std::size_t offset = 0;
-    tpm_check(
+    tss_check(
         Tss2_MU_TPM2B_PRIVATE_Unmarshal(
             blob.data(), blob.size(), &offset, &result
         ),
@@ -274,7 +261,7 @@ std::vector<uint8_t> marshal_public(const TPM2B_PUBLIC& value) {
     const std::size_t capacity = sizeof(value.size) + value.size;
     std::vector<uint8_t> output(capacity);
     std::size_t offset = 0;
-    tpm_check(
+    tss_check(
         Tss2_MU_TPM2B_PUBLIC_Marshal(
             &value, output.data(), output.size(), &offset
         ),
@@ -290,7 +277,7 @@ std::vector<uint8_t> marshal_private(const TPM2B_PRIVATE& value) {
     const std::size_t capacity = sizeof(value.size) + value.size;
     std::vector<uint8_t> output(capacity);
     std::size_t offset = 0;
-    tpm_check(
+    tss_check(
         Tss2_MU_TPM2B_PRIVATE_Marshal(
             &value, output.data(), output.size(), &offset
         ),
@@ -310,7 +297,7 @@ TpmCtx::TpmCtx(TSS2_TCTI_CONTEXT* tcti) {
         if(ctx != nullptr) {
             Esys_Finalize(&ctx);
         }
-        throw_tpm_error(result, "Esys_Initialize");
+        throw_tss_error(result, "Esys_Initialize");
     }
 }
 
@@ -379,7 +366,7 @@ CredentialKeyProvider::CredentialKeyProvider(
     EsysUniquePtr<TPM2B_CREATION_DATA> creation_data(creation_data_raw);
     EsysUniquePtr<TPM2B_DIGEST> creation_hash(creation_hash_raw);
     EsysUniquePtr<TPMT_TK_CREATION> creation_ticket(creation_ticket_raw);
-    tpm_check(result, "Esys_CreatePrimary credential parent");
+    tss_check(result, "Esys_CreatePrimary credential parent");
     if(out_public == nullptr) {
         throw std::runtime_error("Esys_CreatePrimary returned no parent public area");
     }
@@ -448,7 +435,7 @@ CredentialKey CredentialKeyProvider::create(
     EsysUniquePtr<TPM2B_CREATION_DATA> creation_data(creation_data_raw);
     EsysUniquePtr<TPM2B_DIGEST> creation_hash(creation_hash_raw);
     EsysUniquePtr<TPMT_TK_CREATION> creation_ticket(creation_ticket_raw);
-    tpm_check(result, "Esys_Create credential key");
+    tss_check(result, "Esys_Create credential key");
     if(private_blob == nullptr || public_blob == nullptr) {
         throw std::runtime_error("Esys_Create returned incomplete key blobs");
     }
@@ -478,7 +465,7 @@ std::vector<uint8_t> CredentialKeyProvider::sign(
     CleanseObject cleanse_private_blob(private_blob);
 
     TpmTransientHandle key_handle(tpm_.ctx);
-    tpm_check(
+    tss_check(
         Esys_Load(
             tpm_.ctx,
             parent_.get(),
@@ -519,7 +506,7 @@ std::vector<uint8_t> CredentialKeyProvider::sign(
         &signature_raw
     );
     EsysUniquePtr<TPMT_SIGNATURE> signature(signature_raw);
-    tpm_check(result, "Esys_Sign credential assertion");
+    tss_check(result, "Esys_Sign credential assertion");
     if(
         signature == nullptr ||
         signature->sigAlg != TPM2_ALG_ECDSA ||
