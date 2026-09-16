@@ -156,7 +156,7 @@ int main(int argc, char **argv) {
             shutdown_signal.emplace();
 
         StoreAuthorization authorization(
-            store_authorization_path(std::nullopt));
+            store_authorization_path(options.authorizationPath));
         FapiStoreSecurity security(authorization.view());
 
         if (options.command == "provision") {

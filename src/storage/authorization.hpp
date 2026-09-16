@@ -1,42 +1,21 @@
 #pragma once
 
 #include <array>
-#include <fcntl.h>
 #include <filesystem>
 #include <optional>
 #include <string_view>
-#include <sys/stat.h>
-#include <unistd.h>
 
 constexpr const char *CREDENTIAL_NAME = "vauth-db-auth";
 
-class UniqueFd {
-  public:
-    explicit UniqueFd(int fd) noexcept : fd_(fd) {}
-    ~UniqueFd() {
-        if (fd_ >= 0) {
-            ::close(fd_);
-        }
-    }
-
-    UniqueFd(const UniqueFd &) = delete;
-    UniqueFd &operator=(const UniqueFd &) = delete;
-
-    [[nodiscard]] int get() const noexcept { return fd_; }
-
-  private:
-    int fd_;
-};
-
 class StoreAuthorization {
   public:
-    explicit StoreAuthorization(std::filesystem::path &&path);
+    explicit StoreAuthorization(const std::filesystem::path &path);
     ~StoreAuthorization();
 
     StoreAuthorization(const StoreAuthorization &) = delete;
     StoreAuthorization operator=(const StoreAuthorization &) = delete;
-    StoreAuthorization(const StoreAuthorization &&) = delete;
-    StoreAuthorization operator=(const StoreAuthorization &&) = delete;
+    StoreAuthorization(StoreAuthorization &&) = delete;
+    StoreAuthorization operator=(StoreAuthorization &&) = delete;
 
     [[nodiscard]] std::string_view view() const noexcept;
 

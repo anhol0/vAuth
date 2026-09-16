@@ -1,4 +1,30 @@
 #include "authorization.hpp"
+#include <fcntl.h>
+#include <openssl/crypto.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+namespace {
+
+class UniqueFd {
+  public:
+    explicit UniqueFd(int fd) noexcept : fd_(fd) {}
+    ~UniqueFd() {
+        if (fd_ >= 0) {
+            ::close(fd_);
+        }
+    }
+
+    UniqueFd(const UniqueFd &) = delete;
+    UniqueFd &operator=(const UniqueFd &) = delete;
+
+    [[nodiscard]] int get() const noexcept { return fd_; }
+
+  private:
+    int fd_;
+};
+
+} // namespace
 
 void StoreAuthorization::read_authorization(const std::filesystem::path &path) {
     const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
@@ -48,10 +74,10 @@ void StoreAuthorization::read_authorization(const std::filesystem::path &path) {
     }
 
     if (size_ > 0 && bytes_[size_ - 1] == '\n') {
-        bytes_[size_] = '\0';
+        bytes_[--size_] = '\0';
     }
     if (size_ > 0 && bytes_[size_ - 1] == '\r') {
-        bytes_[size_] = '\0';
+        bytes_[--size_] = '\0';
     }
     if (size_ == 0 || size_ > 32 ||
         view().find('\0') != std::string_view::npos) {
@@ -60,8 +86,17 @@ void StoreAuthorization::read_authorization(const std::filesystem::path &path) {
     }
 }
 
-StoreAuthorization::StoreAuthorization(std::filesystem::path &&path) {
-    read_authorization(path);
+StoreAuthorization::StoreAuthorization(const std::filesystem::path &path) {
+    try {
+        read_authorization(path);
+    } catch (...) {
+        OPENSSL_cleanse(bytes_.data(), bytes_.size());
+        throw;
+    }
+}
+
+StoreAuthorization::~StoreAuthorization() {
+    OPENSSL_cleanse(bytes_.data(), bytes_.size());
 }
 
 [[nodiscard]] std::string_view StoreAuthorization::view() const noexcept {

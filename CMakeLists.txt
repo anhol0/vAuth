@@ -63,6 +63,7 @@ target_link_libraries(vauth_crypto PUBLIC
 
 # vAuth credential library
 add_library(vauth_storage
+    ${SOURCE_DIR}/storage/authorization.cpp
     ${SOURCE_DIR}/credentials/credential.cpp
     ${SOURCE_DIR}/cryptography/store_security.cpp
 )
@@ -137,9 +138,9 @@ option(
     ${BUILD_TESTING}
 )
 if(VAUTH_BUILD_UI OR VAUTH_BUILD_DEBUG_AGENT)
-    add_subdirectory(client)
+  add_subdirectory(client)
 endif()
 
 if(BUILD_TESTING)
-    add_subdirectory(tests)
+  add_subdirectory(tests)
 endif()
