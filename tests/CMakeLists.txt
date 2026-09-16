@@ -137,6 +137,19 @@ add_test(
     COMMAND authorization_tests
 )
 
+add_executable(log_tests
+    log_test.cpp
+)
+
+target_link_libraries(log_tests PRIVATE
+    vauth_log
+)
+
+add_test(
+    NAME log
+    COMMAND log_tests
+)
+
 add_executable(store_security_integration_tests
     store_security_integration_test.cpp
     ${PROJECT_SOURCE_DIR}/src/cryptography/tpm.cpp
