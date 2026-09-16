@@ -124,6 +124,19 @@ add_test(
     COMMAND crypto_tests
 )
 
+add_executable(authorization_tests
+    authorization_test.cpp
+)
+
+target_link_libraries(authorization_tests PRIVATE
+    vauth_storage
+)
+
+add_test(
+    NAME authorization
+    COMMAND authorization_tests
+)
+
 add_executable(store_security_integration_tests
     store_security_integration_test.cpp
     ${PROJECT_SOURCE_DIR}/src/cryptography/tpm.cpp
