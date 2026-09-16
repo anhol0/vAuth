@@ -1,5 +1,4 @@
 #include <cerrno>
-#include <array>
 #include <cstdlib>
 #include <fcntl.h>
 #include <filesystem>
@@ -20,36 +19,16 @@
 #include "credentials/credential.hpp"
 #include "cryptography/store_security.hpp"
 #include "cryptography/tpm.hpp"
-#include "device.hpp"
 #include "dbus/agent_service.hpp"
+#include "device.hpp"
 #include "event.hpp"
+#include "storage/authorization.hpp"
 #include "uv/src/auth.hpp"
 #include "uv/src/auth_handler.hpp"
 
 namespace {
 
 constexpr const char* STORE_PATH = "/var/lib/vauth/credentials.v1";
-constexpr const char* CREDENTIAL_NAME = "vauth-db-auth";
-
-class UniqueFd {
-public:
-    explicit UniqueFd(int fd) noexcept : fd_(fd) {}
-    ~UniqueFd() {
-        if(fd_ >= 0) {
-            ::close(fd_);
-        }
-    }
-
-    UniqueFd(const UniqueFd&) = delete;
-    UniqueFd& operator=(const UniqueFd&) = delete;
-
-    [[nodiscard]] int get() const noexcept {
-        return fd_;
-    }
-
-private:
-    int fd_;
-};
 
 class ShutdownSignal {
 public:
@@ -115,23 +94,6 @@ private:
     sigset_t previousMask_{};
     int fd_ = -1;
     bool maskInstalled_ = false;
-};
-
-struct Authorization {
-    Authorization() = default;
-    ~Authorization() {
-        OPENSSL_cleanse(bytes.data(), bytes.size());
-    }
-
-    Authorization(const Authorization&) = delete;
-    Authorization& operator=(const Authorization&) = delete;
-
-    [[nodiscard]] std::string_view view() const noexcept {
-        return {bytes.data(), size};
-    }
-
-    std::array<char, 34> bytes{};
-    std::size_t size = 0;
 };
 
 struct Options {
@@ -204,107 +166,6 @@ Options parse_options(int argc, char** argv) {
     return options;
 }
 
-std::filesystem::path authorization_path(const Options& options) {
-    if(options.authorizationPath) {
-        return *options.authorizationPath;
-    }
-
-    const char* credential_directory = std::getenv("CREDENTIALS_DIRECTORY");
-    if(credential_directory == nullptr || credential_directory[0] == '\0') {
-        throw std::runtime_error(
-            "No database authorization credential was provided; use "
-            "--auth-file or the systemd vauth-db-auth credential"
-        );
-    }
-    return std::filesystem::path(credential_directory) / CREDENTIAL_NAME;
-}
-
-void read_authorization(
-    const std::filesystem::path& path,
-    Authorization& authorization
-) {
-    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-    if(fd == -1) {
-        throw std::system_error(
-            errno,
-            std::generic_category(),
-            "open database authorization credential"
-        );
-    }
-    UniqueFd file(fd);
-
-    struct stat status{};
-    if(::fstat(file.get(), &status) == -1) {
-        throw std::system_error(
-            errno,
-            std::generic_category(),
-            "inspect database authorization credential"
-        );
-    }
-    if(!S_ISREG(status.st_mode) || status.st_nlink != 1) {
-        throw std::runtime_error(
-            "Database authorization credential must be a regular file with "
-            "one link"
-        );
-    }
-    if(status.st_uid != ::geteuid() && status.st_uid != 0) {
-        throw std::runtime_error(
-            "Database authorization credential must be owned by root or the "
-            "service user"
-        );
-    }
-    if ((status.st_mode & 0777) != 0400) {
-        throw std::runtime_error(
-            "Database authorization credential must have mode 0400");
-    }
-    if(status.st_size < 1 || status.st_size > 34) {
-        throw std::runtime_error(
-            "Database authorization credential has an invalid size"
-        );
-    }
-
-    authorization.size = static_cast<std::size_t>(status.st_size);
-    std::size_t offset = 0;
-    while(offset < authorization.size) {
-        const ssize_t count = ::read(
-            file.get(),
-            authorization.bytes.data() + offset,
-            authorization.size - offset
-        );
-        if(count == -1 && errno == EINTR) {
-            continue;
-        }
-        if(count <= 0) {
-            throw std::runtime_error(
-                "Could not read the database authorization credential"
-            );
-        }
-        offset += static_cast<std::size_t>(count);
-    }
-
-    if(
-        authorization.size > 0 &&
-        authorization.bytes[authorization.size - 1] == '\n'
-    ) {
-        authorization.bytes[--authorization.size] = '\0';
-    }
-    if(
-        authorization.size > 0 &&
-        authorization.bytes[authorization.size - 1] == '\r'
-    ) {
-        authorization.bytes[--authorization.size] = '\0';
-    }
-    if(
-        authorization.size == 0 ||
-        authorization.size > 32 ||
-        authorization.view().find('\0') != std::string_view::npos
-    ) {
-        throw std::runtime_error(
-            "Database authorization must contain 1 to 32 non-NUL bytes"
-        );
-    }
-}
-
 } // namespace
 
 int main(int argc, char** argv) {
@@ -321,8 +182,8 @@ int main(int argc, char** argv) {
         if(options.command == "run")
             shutdown_signal.emplace();
 
-        Authorization authorization;
-        read_authorization(authorization_path(options), authorization);
+        StoreAuthorization authorization(
+            store_authorization_path(std::nullopt));
         FapiStoreSecurity security(authorization.view());
 
         if(options.command == "provision") {
