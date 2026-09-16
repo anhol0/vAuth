@@ -8,7 +8,7 @@
 
 #include <tss2/tss2_fapi.h>
 
-#include "storage/gemeration_counter.hpp"
+#include "storage/generation_counter.hpp"
 
 class FapiStoreSecurity final : public StoreGenerationCounter {
 public:
