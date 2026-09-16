@@ -13,6 +13,7 @@ add_subdirectory(${SOURCE_DIR}/uv)
 
 find_package(PkgConfig REQUIRED)
 find_package(sdbus-c++ CONFIG REQUIRED)
+find_package(CLI11 CONFIG REQUIRED)
 pkg_check_modules(SYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
 pkg_check_modules(TINYCBOR REQUIRED tinycbor)
 pkg_check_modules(OPENSSL REQUIRED openssl)
@@ -144,3 +145,5 @@ endif()
 if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()
+
+add_subdirectory(vauthctl)
