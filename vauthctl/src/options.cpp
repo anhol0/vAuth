@@ -2,11 +2,38 @@
 
 #include <CLI/CLI.hpp>
 
+#include <cstddef>
 #include <utility>
 
 namespace {
 
 constexpr int USAGE_ERROR_EXIT_CODE = 2;
+constexpr std::size_t CREDENTIAL_ID_HEX_SIZE = 64;
+
+bool is_hex_digit(char digit) {
+	return
+		(digit >= '0' && digit <= '9') ||
+		(digit >= 'a' && digit <= 'f') ||
+		(digit >= 'A' && digit <= 'F');
+}
+
+CLI::Validator credential_id_validator() {
+	return CLI::Validator{
+		[](std::string& value) {
+			if(value.size() != CREDENTIAL_ID_HEX_SIZE) {
+				return std::string{
+					"Credential ID must contain exactly 64 hexadecimal characters"
+				};
+			}
+			for(const char digit : value) {
+				if(!is_hex_digit(digit))
+					return std::string{"Credential ID contains a non-hexadecimal character"};
+			}
+			return std::string{};
+		},
+		"64 hexadecimal characters"
+	};
+}
 
 } // namespace
 
@@ -17,7 +44,7 @@ ParseResult parse_options(int argc, char** argv) {
 
 	Options options;
 
-	auto* status = app.add_subcommand("status", "Validate the TPM security objects and credential store");
+	auto* status = app.add_subcommand("status", "Check status of the vauth daemon");
 	auto* provision =
 		app.add_subcommand("provision", "Create the database key and rollback counter");
 	provision->add_option("--auth-file", options.authorizationPath, "Database authorization file");
@@ -34,6 +61,7 @@ ParseResult parse_options(int argc, char** argv) {
 	remove->add_option("--owner", options.ownerUid, "Credential owner UID")->required();
 	remove
 		->add_option("--id", options.credentialId, "Credential ID in hexadecimal")
+		->check(credential_id_validator())
 		->required();
 	remove->add_option("--auth-file", options.authorizationPath, "Database authorization file");
 

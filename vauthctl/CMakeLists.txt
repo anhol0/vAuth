@@ -11,12 +11,15 @@ target_link_libraries(vauthctl_options PUBLIC
 )
 
 add_executable(vauthctl
+    src/commands.cpp
     src/main.cpp
 )
 
 target_link_libraries(vauthctl PRIVATE
+    vauth_log
     vauthctl_options
     vauth_storage
+    SDBusCpp::sdbus-c++
 )
 
 if(BUILD_TESTING)
