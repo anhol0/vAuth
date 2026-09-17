@@ -2,20 +2,30 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
+
+#include <cerrno>
+#include <sys/stat.h>
 
 #include <openssl/core_names.h>
 #include <openssl/evp.h>
 #include <openssl/params.h>
 
+#include "commands.hpp"
 #include "credentials/credential.hpp"
 #include "cryptography/store_security.hpp"
 #include "cryptography/tpm.hpp"
+#include "encoding/hex.hpp"
 #include "test_runner.hpp"
 
 namespace {
@@ -36,6 +46,82 @@ struct PkeyContextDeleter {
 
 using Pkey = std::unique_ptr<EVP_PKEY, PkeyDeleter>;
 using PkeyContext = std::unique_ptr<EVP_PKEY_CTX, PkeyContextDeleter>;
+
+void write_authorization_file(
+    const std::filesystem::path& path,
+    std::string_view authorization
+) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output.write(
+        authorization.data(),
+        static_cast<std::streamsize>(authorization.size())
+    );
+    output.close();
+    if(!output) {
+        throw std::runtime_error("Could not write test authorization file");
+    }
+    if(::chmod(path.c_str(), 0400) != 0) {
+        throw std::system_error(
+            errno,
+            std::generic_category(),
+            "chmod test authorization file"
+        );
+    }
+}
+
+std::vector<uint8_t> read_file(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary | std::ios::ate);
+    const auto end = input.tellg();
+    if(end < 0)
+        throw std::runtime_error("Could not size test store file");
+    std::vector<uint8_t> contents(static_cast<std::size_t>(end));
+    input.seekg(0);
+    input.read(
+        reinterpret_cast<char*>(contents.data()),
+        static_cast<std::streamsize>(contents.size())
+    );
+    if(!input)
+        throw std::runtime_error("Could not read test store file");
+    return contents;
+}
+
+void write_file(
+    const std::filesystem::path& path,
+    const std::vector<uint8_t>& contents
+) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output.write(
+        reinterpret_cast<const char*>(contents.data()),
+        static_cast<std::streamsize>(contents.size())
+    );
+    output.close();
+    if(!output)
+        throw std::runtime_error("Could not write test store file");
+}
+
+template<typename Function>
+std::string capture_output(Function&& function) {
+    std::ostringstream output;
+    auto* previous = std::cout.rdbuf(output.rdbuf());
+    try {
+        function();
+    } catch(...) {
+        std::cout.rdbuf(previous);
+        throw;
+    }
+    std::cout.rdbuf(previous);
+    return output.str();
+}
+
+template<typename Exception, typename Function>
+std::string expect_rejected(Function&& function, const char* message) {
+    try {
+        function();
+    } catch(const Exception& error) {
+        return error.what();
+    }
+    throw std::runtime_error(message);
+}
 
 void verify_signature(
     const CredentialKey& key,
@@ -297,8 +383,21 @@ void setup(
     const std::string& authorization,
     const std::string& wrong_authorization
 ) {
+    const auto authorization_path = store_path.parent_path() / "authorization";
+    const auto wrong_authorization_path =
+        store_path.parent_path() / "wrong-authorization";
+    write_authorization_file(authorization_path, authorization);
+    write_authorization_file(wrong_authorization_path, wrong_authorization);
+
+    capture_output([&] {
+        provision(authorization_path);
+    });
+    expect_rejected<std::exception>(
+        [&] { provision(authorization_path); },
+        "Duplicate provisioning was accepted"
+    );
+
     FapiStoreSecurity security(authorization);
-    security.provision();
     if(security.read() != 0) {
         throw std::runtime_error("New rollback counter is not zero");
     }
@@ -319,6 +418,84 @@ void setup(
         throw std::runtime_error("Rollback counter did not advance");
     }
 
+    const auto credential_id = hex_encode(make_credential().id);
+    const std::string listed = capture_output([&] {
+        credential_list(
+            authorization_path,
+            std::nullopt,
+            std::nullopt,
+            store_path
+        );
+    });
+    if(
+        listed.find("example.com") == std::string::npos ||
+        listed.find(credential_id) == std::string::npos
+    ) {
+        throw std::runtime_error("vauthctl did not list the stored credential");
+    }
+
+    const std::string wrong_authorization_error =
+        expect_rejected<std::exception>(
+            [&] {
+                credential_list(
+                    wrong_authorization_path,
+                    std::nullopt,
+                    std::nullopt,
+                    store_path
+                );
+            },
+            "vauthctl accepted the wrong store authorization"
+        );
+    if(wrong_authorization_error.find(wrong_authorization) != std::string::npos) {
+        throw std::runtime_error(
+            "Store authorization was exposed in an error message"
+        );
+    }
+
+    {
+        CredentialStoreLock held_lock(store_path);
+        expect_rejected<std::runtime_error>(
+            [&] {
+                credential_list(
+                    authorization_path,
+                    std::nullopt,
+                    std::nullopt,
+                    store_path
+                );
+            },
+            "vauthctl ignored credential-store lock contention"
+        );
+    }
+
+    expect_rejected<std::out_of_range>(
+        [&] {
+            erase_credential(
+                authorization_path,
+                TEST_OWNER_UID + 1,
+                credential_id,
+                store_path
+            );
+        },
+        "vauthctl deleted a credential owned by a different user"
+    );
+    if(security.read() != 1) {
+        throw std::runtime_error(
+            "Wrong-owner deletion changed rollback counter"
+        );
+    }
+
+    capture_output([&] {
+        erase_credential(
+            authorization_path,
+            TEST_OWNER_UID,
+            credential_id,
+            store_path
+        );
+    });
+    if(security.read() != 2) {
+        throw std::runtime_error("Credential deletion did not advance rollback counter");
+    }
+
     {
         CredentialStore reader(
             store_path,
@@ -326,25 +503,49 @@ void setup(
             &security
         );
         reader.load();
-        if(!reader.has(make_credential().id, TEST_OWNER_UID)) {
-            throw std::runtime_error("Credential did not round-trip");
+        if(reader.has(make_credential().id, TEST_OWNER_UID)) {
+            throw std::runtime_error("Credential remained after vauthctl deletion");
         }
     }
 
+    expect_rejected<std::out_of_range>(
+        [&] {
+            erase_credential(
+                authorization_path,
+                TEST_OWNER_UID,
+                credential_id,
+                store_path
+            );
+        },
+        "vauthctl accepted deletion of a missing credential"
+    );
+    if(security.read() != 2) {
+        throw std::runtime_error(
+            "Failed credential deletion changed rollback counter"
+        );
+    }
+
     {
-        CredentialStore cleaner(
+        CredentialStore writer(
             store_path,
             security.unseal_key(),
             &security
         );
-        cleaner.load();
-        cleaner.clear();
+        writer.load();
+        writer.put(make_credential(), TEST_OWNER_UID);
     }
-    if(security.read() != 2) {
-        throw std::runtime_error("Store clear did not advance rollback counter");
+    if(security.read() != 3) {
+        throw std::runtime_error("Credential replacement did not advance rollback counter");
+    }
+
+    capture_output([&] {
+        store_clear(authorization_path, store_path);
+    });
+    if(security.read() != 4) {
+        throw std::runtime_error("vauthctl clear did not advance rollback counter");
     }
     if(security.unseal_key() != master_key) {
-        throw std::runtime_error("Store clear replaced the sealed database key");
+        throw std::runtime_error("vauthctl clear replaced the sealed database key");
     }
     {
         CredentialStore reader(
@@ -354,19 +555,90 @@ void setup(
         );
         reader.load();
         if(reader.has(make_credential().id, TEST_OWNER_UID)) {
-            throw std::runtime_error("Credential remained after store clear");
+            throw std::runtime_error("Credential remained after vauthctl clear");
         }
     }
 
-    bool wrong_authorization_rejected = false;
-    try {
-        FapiStoreSecurity wrong_security(wrong_authorization);
-        (void)wrong_security.unseal_key();
-    } catch(const std::exception&) {
-        wrong_authorization_rejected = true;
+    const std::string empty_listing = capture_output([&] {
+        credential_list(
+            authorization_path,
+            std::nullopt,
+            std::nullopt,
+            store_path
+        );
+    });
+    if(empty_listing.find("No credentials available") == std::string::npos) {
+        throw std::runtime_error("vauthctl did not report the cleared store as empty");
     }
-    if(!wrong_authorization_rejected) {
-        throw std::runtime_error("Wrong authorization was accepted");
+
+    if(::chmod(store_path.c_str(), 0640) != 0) {
+        throw std::system_error(
+            errno,
+            std::generic_category(),
+            "chmod test store file"
+        );
+    }
+    expect_rejected<std::runtime_error>(
+        [&] {
+            credential_list(
+                authorization_path,
+                std::nullopt,
+                std::nullopt,
+                store_path
+            );
+        },
+        "vauthctl accepted insecure credential-store permissions"
+    );
+    if(::chmod(store_path.c_str(), 0600) != 0) {
+        throw std::system_error(
+            errno,
+            std::generic_category(),
+            "restore test store permissions"
+        );
+    }
+
+    const auto good_store = read_file(store_path);
+    auto corrupt_store = good_store;
+    corrupt_store.back() ^= 0x01;
+    write_file(store_path, corrupt_store);
+    expect_rejected<std::runtime_error>(
+        [&] {
+            credential_list(
+                authorization_path,
+                std::nullopt,
+                std::nullopt,
+                store_path
+            );
+        },
+        "vauthctl accepted a corrupt credential store"
+    );
+    write_file(store_path, good_store);
+
+    const auto missing_store_backup = store_path.string() + ".backup";
+    std::filesystem::rename(store_path, missing_store_backup);
+    expect_rejected<std::runtime_error>(
+        [&] {
+            credential_list(
+                authorization_path,
+                std::nullopt,
+                std::nullopt,
+                store_path
+            );
+        },
+        "vauthctl accepted a missing store with a nonzero rollback counter"
+    );
+    std::filesystem::rename(missing_store_backup, store_path);
+
+    capture_output([&] {
+        credential_list(
+            authorization_path,
+            std::nullopt,
+            std::nullopt,
+            store_path
+        );
+    });
+    if(security.read() != 4) {
+        throw std::runtime_error("Failed vauthctl operations changed rollback counter");
     }
 }
 

@@ -167,6 +167,7 @@ target_include_directories(store_security_integration_tests PRIVATE
 target_link_libraries(store_security_integration_tests PRIVATE
     ${TSS2_ESYS_LIBRARIES}
     ${TSS2_MU_LIBRARIES}
+    vauthctl_commands
     vauth_storage
 )
 

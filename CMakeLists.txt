@@ -151,8 +151,8 @@ if(VAUTH_BUILD_UI OR VAUTH_BUILD_DEBUG_AGENT)
   add_subdirectory(client)
 endif()
 
+add_subdirectory(vauthctl)
+
 if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()
-
-add_subdirectory(vauthctl)
