@@ -33,6 +33,17 @@ struct StoredCredential {
     uint64_t creationOrder = 0;
 };
 
+struct CredentialSummary {
+    std::vector<uint8_t> id;
+    uint32_t ownerUid;
+    std::string rpId;
+    std::string userName;
+    std::string userDisplayName;
+    uint32_t signCount;
+    bool discoverable;
+    uint64_t creationOrder;
+};
+
 class CredentialStoreLock {
 public:
     explicit CredentialStoreLock(const std::filesystem::path& store_path);
@@ -82,6 +93,7 @@ public:
         const std::vector<uint8_t>& cred_id,
         uint32_t owner_uid
     );
+    [[nodiscard]] std::vector<CredentialSummary> list_credentials() const;
     [[nodiscard]] std::string toHex(const std::vector<uint8_t>& v) const;
     [[nodiscard]] std::vector<uint8_t> fromHex(const std::string& s) const;
 

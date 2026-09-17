@@ -1121,6 +1121,39 @@ void CredentialStore::incrementSigCount(
     stored_.swap(updated);
 }
 
+[[nodiscard]] std::vector<CredentialSummary> CredentialStore::list_credentials() const {
+    require_ready();
+    std::vector<CredentialSummary> public_credential_data;
+    public_credential_data.reserve(stored_.size());
+    for(const auto& [id, cred] : stored_) {
+        static_cast<void>(id);
+        public_credential_data.push_back({
+            .id = cred.id,
+            .ownerUid = cred.ownerUid,
+            .rpId = cred.rpId,
+            .userName = cred.userName,
+            .userDisplayName = cred.userDisplayName,
+            .signCount = cred.signCount,
+            .discoverable = cred.discoverable,
+            .creationOrder = cred.creationOrder,
+        });
+    }
+    std::sort(
+        public_credential_data.begin(),
+        public_credential_data.end(),
+        [](const auto& left, const auto& right) {
+            if(left.ownerUid != right.ownerUid)
+                return left.ownerUid < right.ownerUid;
+            if(left.rpId != right.rpId)
+                return left.rpId < right.rpId;
+            if(left.creationOrder != right.creationOrder)
+                return left.creationOrder < right.creationOrder;
+            return left.id < right.id;
+        }
+    );
+    return public_credential_data;
+}
+
 void CredentialStore::require_ready() const {
     if (requiresReload_) {
         throw std::runtime_error("Credential store must be reloaded after "
