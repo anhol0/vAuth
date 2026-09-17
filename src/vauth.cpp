@@ -1,6 +1,4 @@
 #include <cerrno>
-#include <cstdlib>
-#include <fcntl.h>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -10,9 +8,7 @@
 #include <string_view>
 #include <system_error>
 
-#include <openssl/crypto.h>
 #include <sys/signalfd.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 #include "credentials/credential.hpp"
@@ -76,34 +72,23 @@ class ShutdownSignal {
 };
 
 struct Options {
-    std::string command = "run";
     std::optional<std::filesystem::path> authorizationPath;
-#ifdef VAUTH_DEVELOPMENT_BUILD
-    bool confirmedClear = false;
-#endif
 };
 
 [[noreturn]] void usage_error(const std::string &message) {
-    std::string usage = "\nUsage: vauth [run|provision] [--auth-file PATH]";
-#ifdef VAUTH_DEVELOPMENT_BUILD
-    usage += "\n       vauth clear-store --yes [--auth-file PATH]"
-             " (Debug builds only)";
-#endif
-    throw std::invalid_argument(message + usage);
+    throw std::invalid_argument(
+        message + "\nUsage: vauth [run] [--auth-file PATH]"
+    );
 }
 
 Options parse_options(int argc, char **argv) {
     Options options;
     int index = 1;
     if (index < argc && argv[index][0] != '-') {
-        options.command = argv[index++];
-    }
-    if (options.command != "run" && options.command != "provision"
-#ifdef VAUTH_DEVELOPMENT_BUILD
-        && options.command != "clear-store"
-#endif
-    ) {
-        usage_error("Unknown command: " + options.command);
+        const std::string command = argv[index++];
+        if (command != "run") {
+            usage_error("Unknown command: " + command);
+        }
     }
 
     while (index < argc) {
@@ -118,26 +103,8 @@ Options parse_options(int argc, char **argv) {
             options.authorizationPath = argv[index++];
             continue;
         }
-#ifdef VAUTH_DEVELOPMENT_BUILD
-        if (argument == "--yes") {
-            if (options.confirmedClear) {
-                usage_error("--yes may be specified only once");
-            }
-            options.confirmedClear = true;
-            continue;
-        }
-#endif
         usage_error("Unknown option: " + argument);
     }
-
-#ifdef VAUTH_DEVELOPMENT_BUILD
-    if (options.command == "clear-store" && !options.confirmedClear) {
-        usage_error("clear-store requires --yes confirmation");
-    }
-    if (options.command != "clear-store" && options.confirmedClear) {
-        usage_error("--yes is valid only with clear-store");
-    }
-#endif
     return options;
 }
 
@@ -150,33 +117,14 @@ int main(int argc, char **argv) {
 
     try {
         const Options options = parse_options(argc, argv);
-        std::optional<ShutdownSignal> shutdown_signal;
-        if (options.command == "run")
-            shutdown_signal.emplace();
+        ShutdownSignal shutdown_signal;
 
         StoreAuthorization authorization(
             store_authorization_path(options.authorizationPath));
         FapiStoreSecurity security(authorization.view());
 
-        if (options.command == "provision") {
-            security.provision();
-            std::cout << "Database key and rollback counter provisioned\n";
-            return 0;
-        }
-
         CredentialStoreLock store_lock(STORE_PATH);
         auto database_key = security.unseal_key();
-#ifdef VAUTH_DEVELOPMENT_BUILD
-        if (options.command == "clear-store") {
-            CredentialStore store(STORE_PATH, std::move(database_key),
-                                  &security);
-            store.load();
-            store.clear();
-            std::cout
-                << "Credential store cleared; TPM security objects preserved\n";
-            return 0;
-        }
-#endif
         CredentialKeyProvider key_provider(security.tcti(), database_key);
         CredentialStore store(STORE_PATH, std::move(database_key), &security);
         store.load();
@@ -193,7 +141,7 @@ int main(int argc, char **argv) {
                                             agent_service, agent_service);
 #endif
         run(device, store, key_provider, user_interaction,
-            shutdown_signal->native_handle());
+            shutdown_signal.native_handle());
         return 0;
     } catch (const std::exception &error) {
         vauth::log::error("vauth", error.what());
