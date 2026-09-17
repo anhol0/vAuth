@@ -297,6 +297,23 @@ public:
             std::move(state_signal)
         ).forInterface(std::string(INTERFACE_NAME), sdbus::return_slot);
 
+        auto has_available_agent_method = sdbus::registerMethod(
+            std::string(HAS_AVAILABLE_AGENT_METHOD)
+        );
+        has_available_agent_method.outputSignature = sdbus::Signature{"b"};
+        has_available_agent_method.outputParamNames = {"available"};
+        has_available_agent_method.callbackHandler =
+            [this](sdbus::MethodCall call) {
+                has_available_agent(std::move(call));
+            };
+
+        statusVtable_ = object_->addVTable(
+            std::move(has_available_agent_method)
+        ).forInterface(
+            std::string(STATUS_INTERFACE_NAME),
+            sdbus::return_slot
+        );
+
         nameOwnerChanged_ = connection_->addMatch(
             "type='signal',sender='org.freedesktop.DBus',"
             "interface='org.freedesktop.DBus',member='NameOwnerChanged'",
@@ -476,6 +493,27 @@ public:
     }
 
 private:
+    void has_available_agent(sdbus::MethodCall call) noexcept {
+        try {
+            const auto current = registry_.current_context();
+            const bool available =
+                current && session_is_still_active(*current);
+            auto reply = call.createReply();
+            reply << available;
+            reply.send();
+        } catch(const std::exception& error) {
+            try {
+                call.createErrorReply(sdbus::Error{
+                    sdbus::Error::Name{
+                        "org.lamellix.vAuth.Error.StatusUnavailable"
+                    },
+                    error.what()
+                }).send();
+            } catch(...) {
+            }
+        }
+    }
+
     [[nodiscard]] UserContext registered_caller(
         const sdbus::MethodCall& call,
         uint64_t generation
@@ -795,6 +833,7 @@ private:
     std::unique_ptr<sdbus::IConnection> connection_;
     std::unique_ptr<sdbus::IObject> object_;
     sdbus::Slot vtable_;
+    sdbus::Slot statusVtable_;
     sdbus::Slot nameOwnerChanged_;
     UniqueFd wakeFd_;
     std::mutex queueMutex_;

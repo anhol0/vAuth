@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE node PUBLIC
+  "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+  "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node name="/org/lamellix/vAuth">
+  <interface name="org.lamellix.vAuth.Status1">
+    <method name="HasAvailableAgent">
+      <arg name="available" type="b" direction="out"/>
+    </method>
+  </interface>
+</node>
