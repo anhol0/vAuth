@@ -9,7 +9,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <utility>
 
 #include <openssl/crypto.h>
 #include <sys/signalfd.h>
@@ -19,6 +18,7 @@
 #include "credentials/credential.hpp"
 #include "cryptography/store_security.hpp"
 #include "cryptography/tpm.hpp"
+#include "const.hpp"
 #include "dbus/agent_service.hpp"
 #include "device.hpp"
 #include "event.hpp"
@@ -28,8 +28,6 @@
 #include "uv/src/auth_handler.hpp"
 
 namespace {
-
-constexpr const char *STORE_PATH = "/var/lib/vauth/credentials.v1";
 
 class ShutdownSignal {
   public:
