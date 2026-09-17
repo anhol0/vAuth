@@ -818,7 +818,7 @@ void CredentialStore::put(const StoredCredential& cred, uint32_t owner_uid) {
 	stored_.swap(updated);
 }
 
-void CredentialStore::erase(std::vector<uint8_t>& credential_id, uint32_t ownerUid) {
+void CredentialStore::erase(const std::vector<uint8_t>& credential_id, uint32_t ownerUid) {
 	require_ready();
 	const std::string credid = hex_encode(credential_id);
 	const auto current		 = stored_.find(credid);
