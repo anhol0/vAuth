@@ -19,6 +19,7 @@
 
 #include "event.hpp"
 #include "cancellation.hpp"
+#include "ctap_command_handler.hpp"
 #include "device.hpp"
 #include "response.hpp"
 #include "error.hpp"
@@ -188,6 +189,7 @@ void run(
     using Clock = std::chrono::steady_clock;
 
     uint64_t next_generation = 1;
+    CTAPCommandHandler command_handler;
     std::jthread worker;
 
     if(shutdown_fd < 0)
@@ -348,6 +350,8 @@ void run(
                                 active->cancel_requested = true;
                                 active->discard_result = true;
                                 worker.request_stop();
+                            } else {
+                                command_handler.reset();
                             }
                         }
                         send_packet(device, handle_init(request, assigned_cid));
@@ -401,6 +405,7 @@ void run(
                                 generation,
                                 &completion_mutex,
                                 &completion,
+                                &command_handler,
                                 &store,
                                 &key_provider,
                                 &user_interaction,
@@ -416,6 +421,7 @@ void run(
                                 result.packet = execute_ctap_request(
                                     std::move(request),
                                     stop,
+                                    command_handler,
                                     store,
                                     key_provider,
                                     user_interaction,
@@ -462,6 +468,10 @@ void run(
 
             if(!active->discard_result) {
                 send_packet(device, std::move(ready->packet));
+            } else {
+                // The worker no longer accesses command_handler after join.
+                // Drop continuation state created by the aborted operation.
+                command_handler.reset();
             }
             active.reset();
 

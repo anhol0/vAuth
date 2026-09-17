@@ -18,6 +18,7 @@
 #include <stop_token>
 
 class CredentialKeyProvider;
+class CTAPCommandHandler;
 class KeepaliveState;
 class UserInteraction;
 
@@ -43,6 +44,7 @@ std::vector<uhid_event> frame_packet(CTAPPacket &packet);
 CTAPPacket execute_ctap_request(
     UHIDReport report,
     std::stop_token stop,
+    CTAPCommandHandler& command_handler,
     CredentialStore& store,
     CredentialKeyProvider& key_provider,
     UserInteraction& user_interaction,

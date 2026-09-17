@@ -1,5 +1,6 @@
 #include "device.hpp"
 #include "cancellation.hpp"
+#include "ctap_command_handler.hpp"
 #include "error.hpp"
 #include "response.hpp"
 #include "uhid_report.hpp"
@@ -116,20 +117,28 @@ CTAPPacket make_hid_error(uint32_t cid, HIDError error)
 CTAPPacket execute_ctap_request(
     UHIDReport report,
     std::stop_token stop,
+    CTAPCommandHandler& command_handler,
     CredentialStore& store,
     CredentialKeyProvider& key_provider,
     UserInteraction& user_interaction,
     KeepaliveState& keepalive
 ) {
-    cancellation_point(stop);
-    return handle_cbor(
-        report,
-        stop,
-        store,
-        key_provider,
-        user_interaction,
-        keepalive
-    );
+    try {
+        cancellation_point(stop);
+        return command_handler.handle(
+            report,
+            stop,
+            store,
+            key_provider,
+            user_interaction,
+            keepalive
+        );
+    } catch(...) {
+        // Cancellation can be observed before the handler sees a replacing
+        // command, so do not retain an older assertion sequence.
+        command_handler.reset();
+        throw;
+    }
 }
 
 std::vector<uhid_event> frame_packet(CTAPPacket &packet) {

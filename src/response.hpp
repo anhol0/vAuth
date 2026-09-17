@@ -1,18 +1,9 @@
 #pragma once
 
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <stop_token>
 #include <vector>
 
-#include "credentials/credential.hpp"
 #include "uhid_report.hpp"
-
-class CredentialKeyProvider;
-class KeepaliveState;
-class UserInteraction;
 
 constexpr uint8_t MASK = 0x80;
 
@@ -41,11 +32,3 @@ public:
 CTAPPacket handle_init(UHIDReport &request, uint32_t assigned_cid);
 CTAPPacket handle_ping(UHIDReport &request);
 void start_worker(UHIDReport &request);
-CTAPPacket handle_cbor(
-    UHIDReport& request,
-    std::stop_token stop,
-    CredentialStore& store,
-    CredentialKeyProvider& key_provider,
-    UserInteraction& user_interaction,
-    KeepaliveState& keepalive
-);

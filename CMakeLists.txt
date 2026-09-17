@@ -93,6 +93,7 @@ target_link_libraries(vauth_storage PUBLIC
 add_executable(${PN}
     # Uncategorized
     ${SOURCE_DIR}/${PN}.cpp
+    ${SOURCE_DIR}/ctap_command_handler.cpp
     ${SOURCE_DIR}/event.cpp
     ${SOURCE_DIR}/response.cpp
     ${SOURCE_DIR}/device.cpp
