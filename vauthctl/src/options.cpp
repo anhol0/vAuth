@@ -3,7 +3,6 @@
 
 #include <CLI/CLI.hpp>
 
-#include <cstddef>
 #include <utility>
 
 namespace {
@@ -11,9 +10,7 @@ namespace {
 constexpr int USAGE_ERROR_EXIT_CODE = 2;
 
 bool is_hex_digit(char digit) {
-	return
-		(digit >= '0' && digit <= '9') ||
-		(digit >= 'a' && digit <= 'f') ||
+	return (digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f') ||
 		(digit >= 'A' && digit <= 'F');
 }
 
@@ -21,14 +18,14 @@ CLI::Validator credential_id_validator() {
 	return CLI::Validator{
 		[](std::string& value) {
 			if(!vauthctl::valid_credential_id_hex_length(value.size())) {
-				return std::string{
-					"Credential ID must contain between 32 and 2048 hexadecimal "
-					"characters and have an even length"
-				};
+				return std::string{ "Credential ID must contain between 32 and "
+									"2048 hexadecimal "
+									"characters and have an even length" };
 			}
 			for(const char digit : value) {
 				if(!is_hex_digit(digit))
-					return std::string{"Credential ID contains a non-hexadecimal character"};
+					return std::string{ "Credential ID contains a "
+										"non-hexadecimal character" };
 			}
 			return std::string{};
 		},
