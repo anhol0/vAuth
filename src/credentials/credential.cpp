@@ -852,6 +852,19 @@ void CredentialStore::put(const StoredCredential& cred, uint32_t owner_uid) {
 	stored_.swap(updated);
 }
 
+void CredentialStore::erase(std::vector<uint8_t>& credential_id, uint32_t ownerUid) {
+	require_ready();
+	const std::string credid = toHex(credential_id);
+	const auto current		 = stored_.find(credid);
+	if(current == stored_.end() || current->second.ownerUid != ownerUid)
+		throw std::out_of_range("Credential ID was not found for local user");
+
+	auto updated = stored_;
+	updated.erase(credid);
+
+	save_storage(updated);
+	stored_.swap(updated);
+}
 
 const StoredCredential&
 CredentialStore::get_by_credId(const std::vector<uint8_t>& cred_id, uint32_t owner_uid) const {

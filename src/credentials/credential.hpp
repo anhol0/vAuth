@@ -70,6 +70,7 @@ class CredentialStore {
 	[[nodiscard]] bool
 	has_for_rp(const std::vector<uint8_t>& cred_id, std::string_view rp_id, uint32_t owner_uid) const;
 	void put(const StoredCredential& cred, uint32_t owner_uid);
+	void erase(std::vector<uint8_t>& credential_id, uint32_t ownerUid);
 	[[nodiscard]] const StoredCredential&
 	get_by_credId(const std::vector<uint8_t>& cred_id, uint32_t owner_uid) const;
 	[[nodiscard]] std::vector<StoredCredential> find_for_assertion(
