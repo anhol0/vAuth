@@ -16,11 +16,6 @@ ParseResult parse_options(int argc, char** argv) {
     app.fallthrough();
 
     Options options;
-    app.add_option(
-        "--auth-file",
-        options.authorizationPath,
-        "Database authorization file"
-    );
 
     auto* status = app.add_subcommand(
         "status",
@@ -29,6 +24,11 @@ ParseResult parse_options(int argc, char** argv) {
     auto* provision = app.add_subcommand(
         "provision",
         "Create the database key and rollback counter"
+    );
+    provision->add_option(
+        "--auth-file",
+        options.authorizationPath,
+        "Database authorization file"
     );
 
     auto* credentials =
@@ -39,6 +39,11 @@ ParseResult parse_options(int argc, char** argv) {
         credentials->add_subcommand("list", "List credential metadata");
     list->add_option("--owner", options.ownerUid, "Filter by owner UID");
     list->add_option("--rp", options.rpId, "Filter by relying-party ID");
+    list->add_option(
+        "--auth-file",
+        options.authorizationPath,
+        "Database authorization file"
+    );
 
     auto* remove =
         credentials->add_subcommand("delete", "Delete one credential");
@@ -51,6 +56,11 @@ ParseResult parse_options(int argc, char** argv) {
             "Credential ID in hexadecimal"
         )
         ->required();
+    remove->add_option(
+        "--auth-file",
+        options.authorizationPath,
+        "Database authorization file"
+    );
 
     auto* clear =
         credentials->add_subcommand("clear", "Delete every stored credential");
@@ -62,6 +72,11 @@ ParseResult parse_options(int argc, char** argv) {
         )
         ->required()
         ->disable_flag_override();
+    clear->add_option(
+        "--auth-file",
+        options.authorizationPath,
+        "Database authorization file"
+    );
 
     try {
         app.parse(argc, argv);
