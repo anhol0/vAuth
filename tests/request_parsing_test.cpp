@@ -662,6 +662,16 @@ namespace {
         }
         CHECK(mixed_owner_rejected);
         CHECK(sequence.origin_cid() == 0);
+
+        sequence.begin(
+            origin_cid,
+            user_context,
+            {assertion_credential(0x66)},
+            start
+        );
+        sequence.clear();
+        CHECK(sequence.origin_cid() == 0);
+        CHECK(!sequence.next(origin_cid, user_context, start).has_value());
     }
 
     void test_assertion_sequence_is_bound_to_user_session() {
