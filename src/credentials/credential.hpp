@@ -80,8 +80,6 @@ class CredentialStore {
 	) const;
 	void incrementSigCount(const std::vector<uint8_t>& cred_id, uint32_t owner_uid);
 	[[nodiscard]] std::vector<CredentialSummary> list_credentials() const;
-	[[nodiscard]] std::string toHex(const std::vector<uint8_t>& v) const;
-	[[nodiscard]] std::vector<uint8_t> fromHex(const std::string& s) const;
 
 	private:
 	struct DecryptedStore {

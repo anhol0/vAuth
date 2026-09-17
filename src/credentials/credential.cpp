@@ -1,5 +1,7 @@
 #include "credential.hpp"
 #include "cryptography/crypto.hpp"
+#include "encoding/hex.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -408,17 +410,6 @@ void atomic_write_file(const std::filesystem::path& store_path, std::span<const 
 	close_checked(directory, "credential store directory");
 }
 
-uint8_t decode_hex_digit(char digit) {
-	if(digit >= '0' && digit <= '9')
-		return static_cast<uint8_t>(digit - '0');
-	if(digit >= 'a' && digit <= 'f')
-		return static_cast<uint8_t>(digit - 'a' + 10);
-	if(digit >= 'A' && digit <= 'F')
-		return static_cast<uint8_t>(digit - 'A' + 10);
-
-	throw std::invalid_argument("Invalid hexadecimal character");
-}
-
 std::vector<uint8_t> read_byte_array(const nlohmann::json& entry, std::string_view field_name) {
 	const auto& value = entry.at(field_name);
 	if(!value.is_array()) {
@@ -496,31 +487,6 @@ CredentialStore::CredentialStore(std::filesystem::path path, Key key, StoreGener
 
 CredentialStore::~CredentialStore() {
 	OPENSSL_cleanse(storeKey_.data(), storeKey_.size());
-}
-
-// Hex conversions
-std::string CredentialStore::toHex(const std::vector<uint8_t>& v) const {
-	std::string s;
-	s.reserve(v.size() * 2);
-	for(const auto& c : v) {
-		char buf[3];
-		sprintf(buf, "%02X", c);
-		s += buf;
-	}
-	return s;
-}
-
-std::vector<uint8_t> CredentialStore::fromHex(const std::string& s) const {
-	std::vector<uint8_t> v;
-	v.reserve(s.size() / 2);
-	if(s.size() % 2)
-		throw std::invalid_argument("Odd size string is given");
-	for(std::size_t i = 0; i < s.size(); i += 2) {
-		const uint8_t high = decode_hex_digit(s[i]);
-		const uint8_t low  = decode_hex_digit(s[i + 1]);
-		v.push_back(static_cast<uint8_t>((high << 4) | low));
-	}
-	return v;
 }
 
 // Cryptography
@@ -638,12 +604,12 @@ void CredentialStore::save_storage(const Storage& storage) {
 	json j = json::array();
 	for(const auto& item : storage) {
 		const auto& cred = item.second;
-		j.push_back({ { "id", toHex(cred.id) },
+		j.push_back({ { "id", hex_encode(cred.id) },
 					  { "ownerUid", cred.ownerUid },
 					  { "discoverable", cred.discoverable },
 					  { "creationOrder", cred.creationOrder },
 					  { "rpId", cred.rpId },
-					  { "userId", toHex(cred.userId) },
+					  { "userId", hex_encode(cred.userId) },
 					  { "userName", cred.userName },
 					  { "userDisplayName", cred.userDisplayName },
 					  { "alg", cred.alg },
@@ -688,7 +654,7 @@ CredentialStore::Storage CredentialStore::parse_storage(const nlohmann::json& js
 		if(!entry.is_object())
 			throw std::runtime_error("Storage entry is not an object");
 		StoredCredential cred;
-		cred.id = fromHex(entry.at("id").get<std::string>());
+		cred.id = hex_decode(entry.at("id").get<std::string>());
 		if(cred.id.size() < 16)
 			throw std::runtime_error("Invalid Credential ID");
 
@@ -721,7 +687,7 @@ CredentialStore::Storage CredentialStore::parse_storage(const nlohmann::json& js
 		if(cred.rpId.empty())
 			throw std::runtime_error("Empty Relying Party ID");
 
-		cred.userId = fromHex(entry.at("userId").get<std::string>());
+		cred.userId = hex_decode(entry.at("userId").get<std::string>());
 		if(cred.userId.empty() || cred.userId.size() > 64)
 			throw std::runtime_error("Invalid User ID");
 
@@ -745,7 +711,7 @@ CredentialStore::Storage CredentialStore::parse_storage(const nlohmann::json& js
 		cred.private_blob = read_byte_array(entry, "private_blob");
 		validate_credential(cred);
 
-		const auto credential_id = toHex(cred.id);
+		const auto credential_id = hex_encode(cred.id);
 		if(!loaded.emplace(credential_id, std::move(cred)).second)
 			throw std::runtime_error("Duplicate Credential ID");
 	}
@@ -807,13 +773,13 @@ void CredentialStore::clear() {
 
 bool CredentialStore::has(const std::vector<uint8_t>& cred_id, uint32_t owner_uid) const {
 	require_ready();
-	const auto credential = stored_.find(toHex(cred_id));
+	const auto credential = stored_.find(hex_encode(cred_id));
 	return credential != stored_.end() && credential->second.ownerUid == owner_uid;
 }
 
 bool CredentialStore::has_for_rp(const std::vector<uint8_t>& cred_id, std::string_view rp_id, uint32_t owner_uid) const {
 	require_ready();
-	const auto credential = stored_.find(toHex(cred_id));
+	const auto credential = stored_.find(hex_encode(cred_id));
 	return credential != stored_.end() && credential->second.ownerUid == owner_uid &&
 		credential->second.rpId == rp_id;
 }
@@ -828,7 +794,7 @@ void CredentialStore::put(const StoredCredential& cred, uint32_t owner_uid) {
 	stored_credential.ownerUid		= owner_uid;
 	stored_credential.creationOrder = generation_ + 1;
 	validate_credential(stored_credential);
-	const auto credential_id = toHex(stored_credential.id);
+	const auto credential_id = hex_encode(stored_credential.id);
 	if(stored_.contains(credential_id)) {
 		throw std::invalid_argument("Credential ID already exists");
 	}
@@ -854,7 +820,7 @@ void CredentialStore::put(const StoredCredential& cred, uint32_t owner_uid) {
 
 void CredentialStore::erase(std::vector<uint8_t>& credential_id, uint32_t ownerUid) {
 	require_ready();
-	const std::string credid = toHex(credential_id);
+	const std::string credid = hex_encode(credential_id);
 	const auto current		 = stored_.find(credid);
 	if(current == stored_.end() || current->second.ownerUid != ownerUid)
 		throw std::out_of_range("Credential ID was not found for local user");
@@ -869,7 +835,7 @@ void CredentialStore::erase(std::vector<uint8_t>& credential_id, uint32_t ownerU
 const StoredCredential&
 CredentialStore::get_by_credId(const std::vector<uint8_t>& cred_id, uint32_t owner_uid) const {
 	require_ready();
-	const auto credential = stored_.find(toHex(cred_id));
+	const auto credential = stored_.find(hex_encode(cred_id));
 	if(credential == stored_.end() || credential->second.ownerUid != owner_uid) {
 		throw std::out_of_range("Credential ID was not found for local user");
 	}
@@ -892,7 +858,7 @@ std::vector<StoredCredential> CredentialStore::find_for_assertion(
 				continue;
 			}
 
-			const auto credential_id = toHex(descriptor.id);
+			const auto credential_id = hex_encode(descriptor.id);
 			if(!seen.emplace(credential_id).second) {
 				continue;
 			}
@@ -925,7 +891,7 @@ std::vector<StoredCredential> CredentialStore::find_for_assertion(
 void CredentialStore::incrementSigCount(const std::vector<uint8_t>& cred_id, uint32_t owner_uid) {
 	require_ready();
 
-	const auto credential_id = toHex(cred_id);
+	const auto credential_id = hex_encode(cred_id);
 	const auto current		 = stored_.find(credential_id);
 	if(current == stored_.end() || current->second.ownerUid != owner_uid) {
 		throw std::out_of_range("Credential ID was not found for local user");

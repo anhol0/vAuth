@@ -71,6 +71,7 @@ target_link_libraries(vauth_crypto PUBLIC
 
 # vAuth credential library
 add_library(vauth_storage
+    ${SOURCE_DIR}/encoding/hex.cpp
     ${SOURCE_DIR}/storage/authorization.cpp
     ${SOURCE_DIR}/credentials/credential.cpp
     ${SOURCE_DIR}/cryptography/store_security.cpp
