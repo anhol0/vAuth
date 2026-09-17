@@ -23,6 +23,7 @@
 #include "credentials/credential.hpp"
 #include "cryptography/crypto.hpp"
 #include "test_runner.hpp"
+#include "encoding/hex.hpp"
 
 namespace {
 
@@ -326,12 +327,12 @@ void test_hex_decoder_rejects_malformed_input() {
     const std::vector<uint8_t> key(32, 0x33);
     CredentialStore store(temporary.path(), key);
 
-    CHECK(store.fromHex("00aF") == std::vector<uint8_t>({0x00, 0xAF}));
+    CHECK(hex_decode("00aF") == std::vector<uint8_t>({0x00, 0xAF}));
 
     for(const std::string_view malformed : {"0", "0G", "G0", "+1", " 1"}) {
         bool rejected = false;
         try {
-            (void)store.fromHex(std::string(malformed));
+            (void)hex_decode(std::string(malformed));
         } catch(const std::invalid_argument&) {
             rejected = true;
         }
