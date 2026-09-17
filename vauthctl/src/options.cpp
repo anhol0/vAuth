@@ -1,4 +1,5 @@
 #include "options.hpp"
+#include "credential_id.hpp"
 
 #include <CLI/CLI.hpp>
 
@@ -8,7 +9,6 @@
 namespace {
 
 constexpr int USAGE_ERROR_EXIT_CODE = 2;
-constexpr std::size_t CREDENTIAL_ID_HEX_SIZE = 64;
 
 bool is_hex_digit(char digit) {
 	return
@@ -20,9 +20,10 @@ bool is_hex_digit(char digit) {
 CLI::Validator credential_id_validator() {
 	return CLI::Validator{
 		[](std::string& value) {
-			if(value.size() != CREDENTIAL_ID_HEX_SIZE) {
+			if(!vauthctl::valid_credential_id_hex_length(value.size())) {
 				return std::string{
-					"Credential ID must contain exactly 64 hexadecimal characters"
+					"Credential ID must contain between 32 and 2048 hexadecimal "
+					"characters and have an even length"
 				};
 			}
 			for(const char digit : value) {
@@ -31,7 +32,7 @@ CLI::Validator credential_id_validator() {
 			}
 			return std::string{};
 		},
-		"64 hexadecimal characters"
+		"32 to 2048 hexadecimal characters with an even length"
 	};
 }
 
