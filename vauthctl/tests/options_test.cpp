@@ -85,24 +85,20 @@ void test_unknown_option_is_usage_error() {
     CHECK(!parsed.result.options.has_value());
 }
 
-void test_status_accepts_auth_file_before_command() {
+void test_status_rejects_auth_file_before_command() {
     const auto parsed = parse({
         "vauthctl", "--auth-file", "/tmp/authorization", "status"
     });
-    const auto& options = require_options(parsed);
-    CHECK(options.command == Command::status);
-    CHECK(options.authorizationPath.has_value());
-    CHECK(*options.authorizationPath == "/tmp/authorization");
+    CHECK(parsed.result.exitCode == 2);
+    CHECK(!parsed.result.options.has_value());
 }
 
-void test_status_accepts_auth_file_after_command() {
+void test_status_rejects_auth_file_after_command() {
     const auto parsed = parse({
         "vauthctl", "status", "--auth-file", "/tmp/authorization"
     });
-    const auto& options = require_options(parsed);
-    CHECK(options.command == Command::status);
-    CHECK(options.authorizationPath.has_value());
-    CHECK(*options.authorizationPath == "/tmp/authorization");
+    CHECK(parsed.result.exitCode == 2);
+    CHECK(!parsed.result.options.has_value());
 }
 
 void test_provision_is_selected() {
@@ -128,14 +124,30 @@ void test_credentials_delete_options_are_required() {
 }
 
 void test_credentials_delete_options_are_parsed() {
+    const std::string credential_id(64, 'a');
     const auto parsed = parse({
         "vauthctl", "credentials", "delete",
-        "--owner", "1000", "--id", "aabbccdd"
+        "--owner", "1000", "--id", credential_id
     });
     const auto& options = require_options(parsed);
     CHECK(options.command == Command::credentialsDelete);
     CHECK(options.ownerUid == std::optional<uint32_t>(1000));
-    CHECK(options.credentialId == std::optional<std::string>("aabbccdd"));
+    CHECK(options.credentialId == std::optional<std::string>(credential_id));
+}
+
+void test_credentials_delete_rejects_invalid_id() {
+    for(const std::string credential_id : {
+        std::string(62, 'a'),
+        std::string(66, 'a'),
+        std::string(64, 'g'),
+    }) {
+        const auto parsed = parse({
+            "vauthctl", "credentials", "delete",
+            "--owner", "1000", "--id", credential_id
+        });
+        CHECK(parsed.result.exitCode == 2);
+        CHECK(!parsed.result.options.has_value());
+    }
 }
 
 void test_invalid_owner_is_usage_error() {
@@ -196,12 +208,12 @@ int main() {
         test_unknown_option_is_usage_error
     );
     runner.run(
-        "test_status_accepts_auth_file_before_command",
-        test_status_accepts_auth_file_before_command
+        "test_status_rejects_auth_file_before_command",
+        test_status_rejects_auth_file_before_command
     );
     runner.run(
-        "test_status_accepts_auth_file_after_command",
-        test_status_accepts_auth_file_after_command
+        "test_status_rejects_auth_file_after_command",
+        test_status_rejects_auth_file_after_command
     );
     runner.run("test_provision_is_selected", test_provision_is_selected);
     runner.run(
@@ -215,6 +227,10 @@ int main() {
     runner.run(
         "test_credentials_delete_options_are_parsed",
         test_credentials_delete_options_are_parsed
+    );
+    runner.run(
+        "test_credentials_delete_rejects_invalid_id",
+        test_credentials_delete_rejects_invalid_id
     );
     runner.run(
         "test_invalid_owner_is_usage_error",
