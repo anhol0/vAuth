@@ -24,7 +24,7 @@ std::string hex_encode(const std::vector<uint8_t>& v) {
 	return s;
 }
 
-std::vector<uint8_t> hex_decode(const std::string& s) {
+std::vector<uint8_t> hex_decode(const std::string_view s) {
 	std::vector<uint8_t> v;
 	v.reserve(s.size() / 2);
 	if(s.size() % 2)
