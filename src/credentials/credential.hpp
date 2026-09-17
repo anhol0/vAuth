@@ -12,112 +12,93 @@
 #include <nlohmann/json.hpp>
 
 struct PublicKeyCredentialDescriptor {
-    std::string type;
-    std::vector<uint8_t> id;
-    std::vector<std::string> transports;
+	std::string type;
+	std::vector<uint8_t> id;
+	std::vector<std::string> transports;
 };
 
 
 struct StoredCredential {
-    std::vector<uint8_t> id;
-    uint32_t ownerUid = 0;
-    std::string rpId;
-    std::vector<uint8_t> userId;
-    std::string userName;
-    std::string userDisplayName;
-    int32_t alg;
-    uint32_t signCount;
-    std::vector<uint8_t> private_blob;
-    std::vector<uint8_t> public_blob;
-    bool discoverable = false;
-    uint64_t creationOrder = 0;
+	std::vector<uint8_t> id;
+	uint32_t ownerUid = 0;
+	std::string rpId;
+	std::vector<uint8_t> userId;
+	std::string userName;
+	std::string userDisplayName;
+	int32_t alg;
+	uint32_t signCount;
+	std::vector<uint8_t> private_blob;
+	std::vector<uint8_t> public_blob;
+	bool discoverable	   = false;
+	uint64_t creationOrder = 0;
 };
 
 struct CredentialSummary {
-    std::vector<uint8_t> id;
-    uint32_t ownerUid;
-    std::string rpId;
-    std::string userName;
-    std::string userDisplayName;
-    uint32_t signCount;
-    bool discoverable;
-    uint64_t creationOrder;
+	std::vector<uint8_t> id;
+	uint32_t ownerUid;
+	std::string rpId;
+	std::string userName;
+	std::string userDisplayName;
+	uint32_t signCount;
+	bool discoverable;
+	uint64_t creationOrder;
 };
 
 class CredentialStoreLock {
-public:
-    explicit CredentialStoreLock(const std::filesystem::path& store_path);
-    ~CredentialStoreLock();
+	public:
+	explicit CredentialStoreLock(const std::filesystem::path& store_path);
+	~CredentialStoreLock();
 
-    CredentialStoreLock(const CredentialStoreLock&) = delete;
-    CredentialStoreLock& operator=(const CredentialStoreLock&) = delete;
+	CredentialStoreLock(const CredentialStoreLock&)			   = delete;
+	CredentialStoreLock& operator=(const CredentialStoreLock&) = delete;
 
-private:
-    int directoryFd_ = -1;
+	private:
+	int directoryFd_ = -1;
 };
 
 class CredentialStore {
-public:
-    using Key = std::vector<uint8_t>;
-    using Storage = std::unordered_map<std::string, StoredCredential>;
+	public:
+	using Key	  = std::vector<uint8_t>;
+	using Storage = std::unordered_map<std::string, StoredCredential>;
 
-    CredentialStore(
-        std::filesystem::path path,
-        Key key,
-        StoreGenerationCounter* generation_counter = nullptr
-    );
-    ~CredentialStore();
-    void load();
-    void clear();
+	CredentialStore(std::filesystem::path path, Key key, StoreGenerationCounter* generation_counter = nullptr);
+	~CredentialStore();
+	void load();
+	void clear();
 
-    [[nodiscard]] bool has(
-        const std::vector<uint8_t>& cred_id,
-        uint32_t owner_uid
-    ) const;
-    [[nodiscard]] bool has_for_rp(
-        const std::vector<uint8_t>& cred_id,
-        std::string_view rp_id,
-        uint32_t owner_uid
-    ) const;
-    void put(const StoredCredential& cred, uint32_t owner_uid);
-    [[nodiscard]] const StoredCredential& get_by_credId(
-        const std::vector<uint8_t>& cred_id,
-        uint32_t owner_uid
-    ) const;
-    [[nodiscard]] std::vector<StoredCredential> find_for_assertion(
-        std::string_view rp_id,
-        std::span<const PublicKeyCredentialDescriptor> allow_list,
-        uint32_t owner_uid
-    ) const;
-    void incrementSigCount(
-        const std::vector<uint8_t>& cred_id,
-        uint32_t owner_uid
-    );
-    [[nodiscard]] std::vector<CredentialSummary> list_credentials() const;
-    [[nodiscard]] std::string toHex(const std::vector<uint8_t>& v) const;
-    [[nodiscard]] std::vector<uint8_t> fromHex(const std::string& s) const;
+	[[nodiscard]] bool has(const std::vector<uint8_t>& cred_id, uint32_t owner_uid) const;
+	[[nodiscard]] bool
+	has_for_rp(const std::vector<uint8_t>& cred_id, std::string_view rp_id, uint32_t owner_uid) const;
+	void put(const StoredCredential& cred, uint32_t owner_uid);
+	[[nodiscard]] const StoredCredential&
+	get_by_credId(const std::vector<uint8_t>& cred_id, uint32_t owner_uid) const;
+	[[nodiscard]] std::vector<StoredCredential> find_for_assertion(
+		std::string_view rp_id,
+		std::span<const PublicKeyCredentialDescriptor> allow_list,
+		uint32_t owner_uid
+	) const;
+	void incrementSigCount(const std::vector<uint8_t>& cred_id, uint32_t owner_uid);
+	[[nodiscard]] std::vector<CredentialSummary> list_credentials() const;
+	[[nodiscard]] std::string toHex(const std::vector<uint8_t>& v) const;
+	[[nodiscard]] std::vector<uint8_t> fromHex(const std::string& s) const;
 
-private:
-    struct DecryptedStore {
-        uint64_t generation;
-        std::vector<uint8_t> plaintext;
-    };
+	private:
+	struct DecryptedStore {
+		uint64_t generation;
+		std::vector<uint8_t> plaintext;
+	};
 
-    [[nodiscard]] DecryptedStore decrypt(
-        const std::vector<uint8_t>& ciphertext
-    ) const;
-    [[nodiscard]] std::vector<uint8_t> encrypt(
-        const std::vector<uint8_t>& plaintext,
-        uint64_t generation
-    ) const;
-    void require_ready() const;
-    void save_storage(const Storage& storage);
-    [[nodiscard]] Storage parse_storage(const nlohmann::json& json) const;
+	[[nodiscard]] DecryptedStore decrypt(const std::vector<uint8_t>& ciphertext) const;
+	[[nodiscard]] std::vector<uint8_t>
+	encrypt(const std::vector<uint8_t>& plaintext, uint64_t generation) const;
+	void require_ready() const;
+	void save_storage(const Storage& storage);
+	[[nodiscard]] Storage parse_storage(const nlohmann::json& json) const;
 
-    Storage stored_;
-    std::filesystem::path storePath_;
-    Key storeKey_;
-    StoreGenerationCounter* generationCounter_;
-    uint64_t generation_ = 0;
-    bool requiresReload_ = false;
+	Storage stored_;
+	std::filesystem::path storePath_;
+	Key storeKey_;
+	StoreGenerationCounter* generationCounter_;
+	uint64_t generation_ = 0;
+	bool requiresReload_ = false;
 };
