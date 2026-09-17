@@ -15,6 +15,8 @@ uint8_t decode_hex_digit(char digit) {
 // Hex conversions
 std::string hex_encode(const std::vector<uint8_t>& v) {
 	std::string s;
+	if(v.size() > s.max_size() / 2)
+		throw std::length_error("Hex-encoded output is too large");
 	s.reserve(v.size() * 2);
 	for(const auto& c : v) {
 		char buf[3];
