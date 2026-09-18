@@ -13,6 +13,7 @@ pkg_check_modules(PAM REQUIRED pam)
 add_library(uv_verifier_protocol
     ${SOURCE_DIR}/verifier_conversation.cpp
     ${SOURCE_DIR}/verifier_protocol.cpp
+    ${SOURCE_DIR}/verifier_socket.cpp
 )
 target_include_directories(uv_verifier_protocol PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..
