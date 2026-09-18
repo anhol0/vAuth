@@ -89,6 +89,23 @@ add_test(
     COMMAND uv_verifier_protocol_tests
 )
 
+add_executable(uv_verifier_conversation_tests
+    uv_verifier_conversation_test.cpp
+)
+
+target_include_directories(uv_verifier_conversation_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+)
+
+target_link_libraries(uv_verifier_conversation_tests PRIVATE
+    uv_verifier_protocol
+)
+
+add_test(
+    NAME uv_verifier_conversation
+    COMMAND uv_verifier_conversation_tests
+)
+
 add_executable(uv_user_interaction_tests
     uv_user_interaction_test.cpp
 )
