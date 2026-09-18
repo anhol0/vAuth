@@ -1,15 +1,252 @@
 #include "verifier_protocol.hpp"
 
-#include <stdexcept>
+#include <algorithm>
+#include <cstring>
+#include <string_view>
+#include <utility>
 
 namespace vauth::uv {
+namespace {
 
-std::vector<uint8_t> encode_verifier_message(const VerifierMessage&) {
-    throw std::logic_error("verifier protocol encoding is not implemented");
+enum class MessageType : uint8_t {
+    start = 1,
+    password = 2,
+    cancel = 3,
+    status = 4,
+    complete = 5
+};
+
+template<typename... Functions>
+struct Overloaded : Functions... {
+    using Functions::operator()...;
+};
+
+template<typename... Functions>
+Overloaded(Functions...) -> Overloaded<Functions...>;
+
+[[noreturn]] void invalid(std::string message) {
+    throw VerifierProtocolError(std::move(message));
 }
 
-VerifierMessage decode_verifier_message(std::span<const uint8_t>) {
-    throw std::logic_error("verifier protocol decoding is not implemented");
+void validate_session_id(std::string_view session) {
+    if(session.empty())
+        invalid("session ID must not be empty");
+    if(session.size() > MAX_SESSION_ID_SIZE)
+        invalid("session ID exceeds the verifier protocol limit");
+    if(session.find('\0') != std::string_view::npos)
+        invalid("session ID contains an embedded NUL");
+}
+
+void validate_session_id(std::span<const uint8_t> session) {
+    if(session.empty())
+        invalid("session ID must not be empty");
+    if(session.size() > MAX_SESSION_ID_SIZE)
+        invalid("session ID exceeds the verifier protocol limit");
+    if(std::find(session.begin(), session.end(), uint8_t{0}) != session.end())
+        invalid("session ID contains an embedded NUL");
+}
+
+void validate_password(std::span<const uint8_t> password) {
+    if(password.size() > MAX_PASSWORD_SIZE)
+        invalid("password exceeds the verifier protocol limit");
+    if(
+        std::find(password.begin(), password.end(), uint8_t{0}) !=
+        password.end()
+    ) {
+        invalid("password contains an embedded NUL");
+    }
+}
+
+void set_header(SensitiveBytes& packet, MessageType type) {
+    auto bytes = packet.writable_bytes();
+    bytes[0] = VERIFIER_PROTOCOL_VERSION;
+    bytes[1] = static_cast<uint8_t>(type);
+}
+
+void write_uint32_be(std::span<uint8_t, 4> destination, uint32_t value) {
+    destination[0] = static_cast<uint8_t>(value >> 24);
+    destination[1] = static_cast<uint8_t>(value >> 16);
+    destination[2] = static_cast<uint8_t>(value >> 8);
+    destination[3] = static_cast<uint8_t>(value);
+}
+
+uint32_t read_uint32_be(std::span<const uint8_t, 4> source) {
+    return
+        (static_cast<uint32_t>(source[0]) << 24) |
+        (static_cast<uint32_t>(source[1]) << 16) |
+        (static_cast<uint32_t>(source[2]) << 8) |
+        static_cast<uint32_t>(source[3]);
+}
+
+SensitiveBytes encode_start(const StartVerification& start) {
+    validate_session_id(start.sessionId);
+
+    SensitiveBytes packet(
+        VERIFIER_PROTOCOL_HEADER_SIZE + sizeof(uint32_t) +
+        start.sessionId.size()
+    );
+    set_header(packet, MessageType::start);
+    auto bytes = packet.writable_bytes();
+    write_uint32_be(
+        std::span<uint8_t, 4>(bytes.subspan(
+            VERIFIER_PROTOCOL_HEADER_SIZE,
+            sizeof(uint32_t)
+        )),
+        start.targetUid
+    );
+    std::memcpy(
+        bytes.data() + VERIFIER_PROTOCOL_HEADER_SIZE + sizeof(uint32_t),
+        start.sessionId.data(),
+        start.sessionId.size()
+    );
+    return packet;
+}
+
+SensitiveBytes encode_password(const PasswordResponse& response) {
+    validate_password(response.password.bytes());
+    SensitiveBytes packet(
+        VERIFIER_PROTOCOL_HEADER_SIZE + response.password.size()
+    );
+    set_header(packet, MessageType::password);
+    std::copy(
+        response.password.bytes().begin(),
+        response.password.bytes().end(),
+        packet.writable_bytes().begin() + VERIFIER_PROTOCOL_HEADER_SIZE
+    );
+    return packet;
+}
+
+SensitiveBytes encode_empty(MessageType type) {
+    SensitiveBytes packet(VERIFIER_PROTOCOL_HEADER_SIZE);
+    set_header(packet, type);
+    return packet;
+}
+
+SensitiveBytes encode_byte(MessageType type, uint8_t value) {
+    SensitiveBytes packet(VERIFIER_PROTOCOL_HEADER_SIZE + 1);
+    set_header(packet, type);
+    packet.writable_bytes()[VERIFIER_PROTOCOL_HEADER_SIZE] = value;
+    return packet;
+}
+
+bool is_valid(AuthHandlerStatus status) {
+    switch(status) {
+        case AuthHandlerStatus::fingerprint_required:
+        case AuthHandlerStatus::fingerprint_failed:
+        case AuthHandlerStatus::password_required:
+            return true;
+    }
+    return false;
+}
+
+bool is_valid(VerificationResult result) {
+    switch(result) {
+        case VerificationResult::success:
+        case VerificationResult::denied:
+        case VerificationResult::error:
+            return true;
+    }
+    return false;
+}
+
+}
+
+SensitiveBytes encode_verifier_message(const VerifierMessage& message) {
+    return std::visit(Overloaded{
+        [](const StartVerification& start) {
+            return encode_start(start);
+        },
+        [](const PasswordResponse& response) {
+            return encode_password(response);
+        },
+        [](const CancelVerification&) {
+            return encode_empty(MessageType::cancel);
+        },
+        [](const VerificationStatus& status) {
+            if(!is_valid(status.status))
+                invalid("invalid authentication status");
+            return encode_byte(
+                MessageType::status,
+                static_cast<uint8_t>(status.status)
+            );
+        },
+        [](const VerificationComplete& complete) {
+            if(!is_valid(complete.result))
+                invalid("invalid verification result");
+            return encode_byte(
+                MessageType::complete,
+                static_cast<uint8_t>(complete.result)
+            );
+        }
+    }, message);
+}
+
+VerifierMessage decode_verifier_message(std::span<const uint8_t> packet) {
+    if(packet.size() < VERIFIER_PROTOCOL_HEADER_SIZE)
+        invalid("verifier packet header is truncated");
+    if(packet.size() > MAX_VERIFIER_PACKET_SIZE)
+        invalid("verifier packet exceeds the protocol limit");
+    if(packet[0] != VERIFIER_PROTOCOL_VERSION)
+        invalid("unsupported verifier protocol version");
+
+    const auto payload = packet.subspan(VERIFIER_PROTOCOL_HEADER_SIZE);
+    switch(static_cast<MessageType>(packet[1])) {
+        case MessageType::start: {
+            if(
+                payload.size() <= sizeof(uint32_t) ||
+                payload.size() > sizeof(uint32_t) + MAX_SESSION_ID_SIZE
+            ) {
+                invalid("invalid start-verification packet length");
+            }
+            const auto session = payload.subspan(sizeof(uint32_t));
+            validate_session_id(session);
+            std::string session_id(session.size(), '\0');
+            std::memcpy(
+                session_id.data(),
+                session.data(),
+                session.size()
+            );
+            return StartVerification{
+                .targetUid = read_uint32_be(
+                    std::span<const uint8_t, 4>(
+                        payload.first<sizeof(uint32_t)>()
+                    )
+                ),
+                .sessionId = std::move(session_id)
+            };
+        }
+        case MessageType::password: {
+            validate_password(payload);
+            SensitiveBytes password(payload.size());
+            std::copy(
+                payload.begin(),
+                payload.end(),
+                password.writable_bytes().begin()
+            );
+            return PasswordResponse{.password = std::move(password)};
+        }
+        case MessageType::cancel:
+            if(!payload.empty())
+                invalid("cancel packet contains a payload");
+            return CancelVerification{};
+        case MessageType::status: {
+            if(payload.size() != 1)
+                invalid("invalid authentication-status packet length");
+            const auto status = static_cast<AuthHandlerStatus>(payload[0]);
+            if(!is_valid(status))
+                invalid("invalid authentication status");
+            return VerificationStatus{.status = status};
+        }
+        case MessageType::complete: {
+            if(payload.size() != 1)
+                invalid("invalid verification-result packet length");
+            const auto result = static_cast<VerificationResult>(payload[0]);
+            if(!is_valid(result))
+                invalid("invalid verification result");
+            return VerificationComplete{.result = result};
+        }
+    }
+    invalid("unknown verifier message type");
 }
 
 }

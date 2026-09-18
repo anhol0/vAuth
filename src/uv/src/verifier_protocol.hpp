@@ -9,12 +9,11 @@
 #include <stdexcept>
 #include <string>
 #include <variant>
-#include <vector>
 
 namespace vauth::uv {
 
 inline constexpr uint8_t VERIFIER_PROTOCOL_VERSION = 1;
-inline constexpr std::size_t VERIFIER_PROTOCOL_HEADER_SIZE = 8;
+inline constexpr std::size_t VERIFIER_PROTOCOL_HEADER_SIZE = 2;
 inline constexpr std::size_t MAX_SESSION_ID_SIZE = 255;
 inline constexpr std::size_t MAX_VERIFIER_PACKET_SIZE =
     VERIFIER_PROTOCOL_HEADER_SIZE + MAX_PASSWORD_SIZE;
@@ -67,7 +66,7 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-[[nodiscard]] std::vector<uint8_t> encode_verifier_message(
+[[nodiscard]] SensitiveBytes encode_verifier_message(
     const VerifierMessage& message
 );
 
