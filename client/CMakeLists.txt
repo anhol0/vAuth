@@ -20,16 +20,16 @@ if(VAUTH_BUILD_UI)
     find_package(rlottie REQUIRED)
 
     file(READ
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/fingerprint_waiting.json"
-        VAUTH_FINGERPRINT_WAITING_JSON
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/pending.json"
+        VAUTH_PENDING_JSON
     )
     file(READ
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/fingerprint_success.json"
-        VAUTH_FINGERPRINT_SUCCESS_JSON
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/success.json"
+        VAUTH_SUCCESS_JSON
     )
     file(READ
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/fingerprint_failure.json"
-        VAUTH_FINGERPRINT_FAILURE_JSON
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/fail.json"
+        VAUTH_FAIL_JSON
     )
     configure_file(
         animation_data.hpp.in

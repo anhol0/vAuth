@@ -31,17 +31,17 @@ constexpr float ANIMATION_LOGICAL_HEIGHT = 145.0F;
 constexpr std::size_t MAX_PASSWORD_SIZE = 1024;
 constexpr std::size_t MAX_STARTUP_EVENTS = 32;
 
-struct FingerprintAnimations {
-    std::unique_ptr<rlottie::Animation> waiting;
+struct StatusAnimations {
+    std::unique_ptr<rlottie::Animation> pending;
     std::unique_ptr<rlottie::Animation> success;
-    std::unique_ptr<rlottie::Animation> failure;
+    std::unique_ptr<rlottie::Animation> fail;
 
     [[nodiscard]] rlottie::Animation* for_kind(std::string_view kind) const {
         if(kind == "success")
             return success.get();
         if(kind == "failure")
-            return failure.get();
-        return waiting.get();
+            return fail.get();
+        return pending.get();
     }
 };
 
@@ -244,13 +244,13 @@ int main() {
     try {
         make_process_undumpable();
 
-        FingerprintAnimations animations{
-            load_animation(vauth::client::animation_data::waiting),
+        StatusAnimations animations{
+            load_animation(vauth::client::animation_data::pending),
             load_animation(vauth::client::animation_data::success),
-            load_animation(vauth::client::animation_data::failure)
+            load_animation(vauth::client::animation_data::fail)
         };
-        if(!animations.waiting || !animations.success || !animations.failure)
-            throw std::runtime_error("Unable to load fingerprint animations");
+        if(!animations.pending || !animations.success || !animations.fail)
+            throw std::runtime_error("Unable to load status animations");
 
         auto runtime = std::make_shared<UiRuntime>(AppWindow::create());
         auto startup = std::make_shared<UiStartup>();

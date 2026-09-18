@@ -4,16 +4,16 @@
 
 namespace vauth::client::animation_data {
 
-inline constexpr std::string_view waiting = R"VAUTH_JSON(
-@VAUTH_FINGERPRINT_WAITING_JSON@
+inline constexpr std::string_view pending = R"VAUTH_JSON(
+@VAUTH_PENDING_JSON@
 )VAUTH_JSON";
 
 inline constexpr std::string_view success = R"VAUTH_JSON(
-@VAUTH_FINGERPRINT_SUCCESS_JSON@
+@VAUTH_SUCCESS_JSON@
 )VAUTH_JSON";
 
-inline constexpr std::string_view failure = R"VAUTH_JSON(
-@VAUTH_FINGERPRINT_FAILURE_JSON@
+inline constexpr std::string_view fail = R"VAUTH_JSON(
+@VAUTH_FAIL_JSON@
 )VAUTH_JSON";
 
 } // namespace vauth::client::animation_data
