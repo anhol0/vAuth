@@ -10,6 +10,13 @@ set(SOURCE_DIR src)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PAM REQUIRED pam)
 
+add_library(uv_verifier_protocol
+    ${SOURCE_DIR}/verifier_protocol.cpp
+)
+target_include_directories(uv_verifier_protocol PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
 add_library(uv_process
     ${SOURCE_DIR}/cancellable_process.cpp
 )
