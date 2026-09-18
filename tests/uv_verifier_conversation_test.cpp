@@ -176,22 +176,41 @@ bool test_verification_with_secret() {
 
 bool test_completion_from_each_active_state() {
     using namespace vauth::uv;
-    const std::array<VerifierConversationState, 2> active_states{
-        VerifierVerifying{},
-        VerifierAwaitingSecret{}
-    };
-    for(const auto& current : active_states) {
+    for(const auto result : {
+        VerificationResult::success,
+        VerificationResult::denied,
+        VerificationResult::error
+    }) {
         const auto next = advance_verifier_conversation(
-            current,
+            VerifierVerifying{},
             VerifierMessageSender::pam_verifier,
-            complete_message(VerificationResult::error)
+            complete_message(result)
         );
         CHECK(is_state<VerifierCompleted>(next));
-        CHECK(
-            std::get<VerifierCompleted>(next).result ==
-            VerificationResult::error
-        );
+        CHECK(std::get<VerifierCompleted>(next).result == result);
     }
+
+    const VerifierConversationState awaiting = VerifierAwaitingSecret{};
+    const auto error = advance_verifier_conversation(
+        awaiting,
+        VerifierMessageSender::pam_verifier,
+        complete_message(VerificationResult::error)
+    );
+    CHECK(is_state<VerifierCompleted>(error));
+    CHECK(
+        std::get<VerifierCompleted>(error).result ==
+        VerificationResult::error
+    );
+    CHECK(rejects(
+        awaiting,
+        VerifierMessageSender::pam_verifier,
+        complete_message(VerificationResult::success)
+    ));
+    CHECK(rejects(
+        awaiting,
+        VerifierMessageSender::pam_verifier,
+        complete_message(VerificationResult::denied)
+    ));
     return true;
 }
 
