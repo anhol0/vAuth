@@ -10,7 +10,7 @@
 
 namespace vauth::uv {
 
-inline constexpr std::size_t MAX_PASSWORD_SIZE = 1024;
+inline constexpr std::size_t MAX_SECRET_SIZE = 1024;
 
 class SensitiveBytes {
 public:

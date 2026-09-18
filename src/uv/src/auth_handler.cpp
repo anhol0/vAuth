@@ -1,67 +1,37 @@
 #include "auth_handler.hpp"
-#include "auth_handler_status.hpp"
 #include "cancellable_process.hpp"
 #include "sensitive_bytes.hpp"
+#include "verifier_conversation.hpp"
+#include "verifier_socket.hpp"
 
 #include <security/_pam_types.h>
 #include <security/pam_appl.h>
 
-#include <array>
-#include <algorithm>
 #include <charconv>
-#include <cerrno>
-#include <cctype>
 #include <cstdlib>
 #include <cstring>
-#include <fcntl.h>
 #include <string>
 #include <string_view>
 #include <strings.h>
-#include <unistd.h>
+#include <utility>
 
 namespace {
 
 struct ConversationContext {
-    bool fingerprintPrompted = false;
+    vauth::uv::VerifierSocket& socket;
+    vauth::uv::VerifierConversationState state;
 };
 
-void send_status(vauth::uv::AuthHandlerStatus status) noexcept {
-    const uint8_t value = static_cast<uint8_t>(status);
-    ssize_t result;
-    do {
-        result = write(
-            vauth::uv::AUTH_HANDLER_STATUS_FD,
-            &value,
-            sizeof(value)
-        );
-    } while(result < 0 && errno == EINTR);
-}
-
-std::string lowercase(std::string_view text) {
-    std::string result(text);
-    std::transform(
-        result.begin(),
-        result.end(),
-        result.begin(),
-        [](unsigned char character) {
-            return static_cast<char>(std::tolower(character));
-        }
+void send_verifier_message(
+    ConversationContext& context,
+    vauth::uv::VerifierMessage message
+) {
+    context.socket.send(message);
+    context.state = vauth::uv::advance_verifier_conversation(
+        context.state,
+        vauth::uv::VerifierMessageSender::pam_verifier,
+        message
     );
-    return result;
-}
-
-bool mentions_fingerprint(std::string_view message) {
-    return
-        message.find("finger") != std::string_view::npos ||
-        message.find("swipe") != std::string_view::npos;
-}
-
-bool reports_failure(std::string_view message) {
-    return
-        message.find("fail") != std::string_view::npos ||
-        message.find("not recognized") != std::string_view::npos ||
-        message.find("no match") != std::string_view::npos ||
-        message.find("try again") != std::string_view::npos;
 }
 
 void free_responses(pam_response* responses, int count) noexcept {
@@ -76,47 +46,37 @@ void free_responses(pam_response* responses, int count) noexcept {
     std::free(responses);
 }
 
-int read_password_response(char** response) {
-    if(
-        response == nullptr ||
-        fcntl(vauth::uv::AUTH_HANDLER_RESPONSE_FD, F_GETFD) < 0
-    ) {
+int read_secret_response(
+    ConversationContext& context,
+    std::string_view prompt,
+    char** response
+) {
+    if(response == nullptr)
         return PAM_CONV_ERR;
-    }
+    send_verifier_message(
+        context,
+        vauth::uv::SecretRequired{std::string(prompt)}
+    );
+    vauth::uv::VerifierMessage message = context.socket.receive();
+    context.state = vauth::uv::advance_verifier_conversation(
+        context.state,
+        vauth::uv::VerifierMessageSender::daemon,
+        message
+    );
+    auto* supplied = std::get_if<vauth::uv::SecretResponse>(&message);
+    if(supplied == nullptr)
+        return PAM_CONV_ERR;
 
-    send_status(vauth::uv::AuthHandlerStatus::password_required);
-    std::array<char, vauth::uv::MAX_PASSWORD_SIZE + 1> input{};
-    std::size_t used = 0;
-    while(true) {
-        const ssize_t count = read(
-            vauth::uv::AUTH_HANDLER_RESPONSE_FD,
-            input.data() + used,
-            input.size() - used
-        );
-        if(count > 0) {
-            used += static_cast<std::size_t>(count);
-            if(used > vauth::uv::MAX_PASSWORD_SIZE) {
-                explicit_bzero(input.data(), input.size());
-                return PAM_CONV_ERR;
-            }
-            continue;
-        }
-        if(count == 0)
-            break;
-        if(errno == EINTR)
-            continue;
-        explicit_bzero(input.data(), input.size());
-        return PAM_CONV_ERR;
-    }
-    if(std::memchr(input.data(), '\0', used) != nullptr) {
-        explicit_bzero(input.data(), input.size());
-        return PAM_CONV_ERR;
-    }
-    input[used] = '\0';
-    char* copy = ::strdup(input.data());
-    explicit_bzero(input.data(), input.size());
+    char* copy = static_cast<char*>(std::calloc(supplied->secret.size() + 1, 1));
     if(copy == nullptr)
         return PAM_BUF_ERR;
+    if(!supplied->secret.bytes().empty()) {
+        std::memcpy(
+            copy,
+            supplied->secret.bytes().data(),
+            supplied->secret.size()
+        );
+    }
     *response = copy;
     return PAM_SUCCESS;
 }
@@ -137,6 +97,8 @@ int conversation(
     }
     *response = nullptr;
     auto* context = static_cast<ConversationContext*>(user_data);
+    if(context == nullptr)
+        return PAM_CONV_ERR;
 
     auto* replies = static_cast<pam_response*>(
         std::calloc(static_cast<std::size_t>(message_count), sizeof(pam_response))
@@ -154,7 +116,11 @@ int conversation(
             int rc = PAM_SUCCESS;
             switch(messages[i]->msg_style) {
                 case PAM_PROMPT_ECHO_OFF:
-                    rc = read_password_response(&replies[i].resp);
+                    rc = read_secret_response(
+                        *context,
+                        messages[i]->msg == nullptr ? "" : messages[i]->msg,
+                        &replies[i].resp
+                    );
                     break;
                 case PAM_PROMPT_ECHO_ON:
                     // The daemon never obtains identity or other visible PAM
@@ -162,29 +128,23 @@ int conversation(
                     rc = PAM_CONV_ERR;
                     break;
                 case PAM_TEXT_INFO:
-                case PAM_ERROR_MSG: {
-                    const std::string normalized = lowercase(
-                        messages[i]->msg == nullptr ? "" : messages[i]->msg
+                    send_verifier_message(
+                        *context,
+                        vauth::uv::VerificationStatus{
+                            vauth::uv::VerificationStatusKind::information,
+                            messages[i]->msg == nullptr ? "" : messages[i]->msg
+                        }
                     );
-                    if(mentions_fingerprint(normalized)) {
-                        if(context != nullptr)
-                            context->fingerprintPrompted = true;
-                        send_status(
-                            reports_failure(normalized)
-                                ? vauth::uv::AuthHandlerStatus::fingerprint_failed
-                                : vauth::uv::AuthHandlerStatus::fingerprint_required
-                        );
-                    } else if(
-                        context != nullptr &&
-                        context->fingerprintPrompted &&
-                        reports_failure(normalized)
-                    ) {
-                        send_status(
-                            vauth::uv::AuthHandlerStatus::fingerprint_failed
-                        );
-                    }
                     break;
-                }
+                case PAM_ERROR_MSG:
+                    send_verifier_message(
+                        *context,
+                        vauth::uv::VerificationStatus{
+                            vauth::uv::VerificationStatusKind::error,
+                            messages[i]->msg == nullptr ? "" : messages[i]->msg
+                        }
+                    );
+                    break;
                 default:
                     rc = PAM_CONV_ERR;
                     break;
@@ -257,9 +217,9 @@ private:
 int authenticate(
     const char* username,
     const char* process_name,
-    const char* confdir
+    const char* confdir,
+    ConversationContext& context
 ) {
-    ConversationContext context;
     const pam_conv conv{&conversation, &context};
     PamSession session;
     int rc = session.start(
@@ -278,6 +238,25 @@ int authenticate(
     if(rc == PAM_SUCCESS && end_rc != PAM_SUCCESS)
         return end_rc;
     return rc;
+}
+
+vauth::uv::VerificationResult verification_result(int pam_status) noexcept {
+    if(pam_status == PAM_SUCCESS)
+        return vauth::uv::VerificationResult::success;
+    switch(pam_status) {
+        case PAM_OPEN_ERR:
+        case PAM_SYMBOL_ERR:
+        case PAM_SERVICE_ERR:
+        case PAM_SYSTEM_ERR:
+        case PAM_BUF_ERR:
+        case PAM_CONV_ERR:
+        case PAM_ABORT:
+        case PAM_MODULE_UNKNOWN:
+        case PAM_BAD_ITEM:
+            return vauth::uv::VerificationResult::error;
+        default:
+            return vauth::uv::VerificationResult::denied;
+    }
 }
 
 }
@@ -301,7 +280,22 @@ int run_vauth_auth_handler(int argc, char** argv) noexcept {
             return PAM_SYSTEM_ERR;
         }
         vauth::uv::arm_parent_death_signal(expected_parent);
-        return authenticate(argv[0], argv[1], argv[2]);
+        vauth::uv::VerifierSocket socket(vauth::uv::VERIFIER_SOCKET_FD);
+        vauth::uv::VerifierConversationState state =
+            vauth::uv::VerifierAwaitingStart{};
+        vauth::uv::VerifierMessage start = socket.receive();
+        state = vauth::uv::advance_verifier_conversation(
+            state,
+            vauth::uv::VerifierMessageSender::daemon,
+            start
+        );
+        ConversationContext context{socket, std::move(state)};
+        const int result = authenticate(argv[0], argv[1], argv[2], context);
+        send_verifier_message(
+            context,
+            vauth::uv::VerificationComplete{verification_result(result)}
+        );
+        return result;
     } catch(...) {
         return PAM_SYSTEM_ERR;
     }

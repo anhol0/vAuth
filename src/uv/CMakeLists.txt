@@ -25,6 +25,7 @@ add_library(uv_process
 target_include_directories(uv_process PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
+target_link_libraries(uv_process PUBLIC uv_verifier_protocol)
 
 add_library(${PN}
     ${SOURCE_DIR}/auth.cpp

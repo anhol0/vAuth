@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sensitive_bytes.hpp"
+#include "verifier_protocol.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -23,9 +24,21 @@ int run_cancellable_program(
     const std::vector<std::string>& arguments,
     std::stop_token stop,
     std::chrono::steady_clock::duration timeout,
-    const std::function<void(uint8_t)>& status_callback = {},
-    const std::function<bool()>& cancellation_requested = {},
-    const std::function<SensitiveBytes()>& password_callback = {}
+    const std::function<bool()>& cancellation_requested = {}
+);
+
+// Runs the current PAM verifier child over one authenticated-by-inheritance
+// SOCK_SEQPACKET connection. The child must complete the verifier protocol
+// before a normal exit is accepted.
+VerificationResult run_cancellable_verifier_program(
+    const std::string& path,
+    const std::vector<std::string>& arguments,
+    StartVerification start,
+    std::stop_token stop,
+    std::chrono::steady_clock::duration timeout,
+    const std::function<void(const VerificationStatus&)>& status_callback,
+    const std::function<SensitiveBytes(const SecretRequired&)>& secret_callback,
+    const std::function<bool()>& cancellation_requested = {}
 );
 
 }

@@ -6,6 +6,8 @@
 
 namespace vauth::uv {
 
+inline constexpr int VERIFIER_SOCKET_FD = 3;
+
 class VerifierSocketError : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;

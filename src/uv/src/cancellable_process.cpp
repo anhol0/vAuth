@@ -1,7 +1,8 @@
 #include "cancellable_process.hpp"
 
 #include "cancellation.hpp"
-#include "auth_handler_status.hpp"
+#include "verifier_conversation.hpp"
+#include "verifier_socket.hpp"
 
 #include <algorithm>
 #include <array>
@@ -12,10 +13,12 @@
 #include <fcntl.h>
 #include <mutex>
 #include <optional>
+#include <poll.h>
 #include <spawn.h>
 #include <stdexcept>
 #include <system_error>
 #include <sys/prctl.h>
+#include <sys/socket.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -56,6 +59,10 @@ public:
         return fd_;
     }
 
+    [[nodiscard]] int release() noexcept {
+        return std::exchange(fd_, -1);
+    }
+
     void reset(int fd = -1) noexcept {
         UniqueFd replacement(fd);
         *this = std::move(replacement);
@@ -65,36 +72,42 @@ private:
     int fd_ = -1;
 };
 
-struct Pipe {
-    UniqueFd read;
-    UniqueFd write;
+struct SocketPair {
+    UniqueFd daemon;
+    UniqueFd verifier;
 };
 
-Pipe make_pipe(int flags, const char* operation) {
-    std::array<int, 2> descriptors{};
-    if(pipe2(descriptors.data(), flags) != 0) {
+SocketPair make_verifier_socket_pair() {
+    std::array<int, 2> descriptors{-1, -1};
+    if(
+        socketpair(
+            AF_UNIX,
+            SOCK_SEQPACKET | SOCK_CLOEXEC,
+            0,
+            descriptors.data()
+        ) != 0
+    ) {
         throw std::system_error(
             errno,
             std::generic_category(),
-            operation
+            "create verifier socket pair"
         );
     }
-
     return {
-        .read = UniqueFd(descriptors[0]),
-        .write = UniqueFd(descriptors[1])
+        .daemon = UniqueFd(descriptors[0]),
+        .verifier = UniqueFd(descriptors[1])
     };
 }
 
 void move_above_auth_descriptors(UniqueFd& descriptor) {
     if(
-        descriptor.get() == AUTH_HANDLER_STATUS_FD ||
-        descriptor.get() == AUTH_HANDLER_RESPONSE_FD
+        descriptor.get() == VERIFIER_SOCKET_FD ||
+        descriptor.get() == VERIFIER_SOCKET_FD + 1
     ) {
         const int duplicate = fcntl(
             descriptor.get(),
             F_DUPFD_CLOEXEC,
-            AUTH_HANDLER_RESPONSE_FD + 1
+            VERIFIER_SOCKET_FD + 2
         );
         if(duplicate < 0) {
             throw std::system_error(
@@ -104,55 +117,6 @@ void move_above_auth_descriptors(UniqueFd& descriptor) {
             );
         }
         descriptor.reset(duplicate);
-    }
-}
-
-void write_password(int fd, std::span<const uint8_t> password) {
-    std::size_t written = 0;
-    while(written < password.size()) {
-        const ssize_t count = write(
-            fd,
-            password.data() + written,
-            password.size() - written
-        );
-        if(count > 0) {
-            written += static_cast<std::size_t>(count);
-            continue;
-        }
-        if(count < 0 && errno == EINTR)
-            continue;
-        throw std::system_error(
-            count < 0 ? errno : EIO,
-            std::generic_category(),
-            "write authentication password"
-        );
-    }
-}
-
-void drain_statuses(
-    int fd,
-    const std::function<void(uint8_t)>& callback
-) {
-    if(fd < 0 || !callback)
-        return;
-
-    std::array<uint8_t, 64> statuses{};
-    while(true) {
-        const ssize_t count = read(fd, statuses.data(), statuses.size());
-        if(count > 0) {
-            for(ssize_t index = 0; index < count; ++index)
-                callback(statuses[static_cast<std::size_t>(index)]);
-            continue;
-        }
-        if(count == 0 || (errno == EAGAIN || errno == EWOULDBLOCK))
-            return;
-        if(errno == EINTR)
-            continue;
-        throw std::system_error(
-            errno,
-            std::generic_category(),
-            "read authentication status"
-        );
     }
 }
 
@@ -181,32 +145,16 @@ private:
 
 class SpawnFileActions {
 public:
-    SpawnFileActions(int status_write_fd, int response_read_fd) {
+    explicit SpawnFileActions(int verifier_fd = -1) {
         int rc = posix_spawn_file_actions_init(&actions_);
         if(rc != 0)
             throw std::system_error(rc, std::generic_category(), "posix_spawn_file_actions_init");
 
-        if(status_write_fd >= 0) {
+        if(verifier_fd >= 0) {
             rc = posix_spawn_file_actions_adddup2(
                 &actions_,
-                status_write_fd,
-                AUTH_HANDLER_STATUS_FD
-            );
-            if(rc != 0) {
-                posix_spawn_file_actions_destroy(&actions_);
-                throw std::system_error(
-                    rc,
-                    std::generic_category(),
-                    "posix_spawn_file_actions_adddup2"
-                );
-            }
-        }
-
-        if(response_read_fd >= 0) {
-            rc = posix_spawn_file_actions_adddup2(
-                &actions_,
-                response_read_fd,
-                AUTH_HANDLER_RESPONSE_FD
+                verifier_fd,
+                VERIFIER_SOCKET_FD
             );
             if(rc != 0) {
                 posix_spawn_file_actions_destroy(&actions_);
@@ -219,10 +167,8 @@ public:
         }
 
         int close_from = STDERR_FILENO + 1;
-        if(status_write_fd >= 0)
-            close_from = AUTH_HANDLER_STATUS_FD + 1;
-        if(response_read_fd >= 0)
-            close_from = AUTH_HANDLER_RESPONSE_FD + 1;
+        if(verifier_fd >= 0)
+            close_from = VERIFIER_SOCKET_FD + 1;
         rc = posix_spawn_file_actions_addclosefrom_np(
             &actions_,
             close_from
@@ -320,6 +266,89 @@ private:
     pid_t pid_;
 };
 
+pid_t spawn_program(
+    const std::string& path,
+    const std::vector<std::string>& arguments,
+    int verifier_fd = -1
+) {
+    std::vector<char*> argv;
+    argv.reserve(arguments.size() + 2);
+    argv.push_back(const_cast<char*>(path.c_str()));
+    for(const std::string& argument : arguments)
+        argv.push_back(const_cast<char*>(argument.c_str()));
+    argv.push_back(nullptr);
+
+    SpawnAttributes attributes;
+    SpawnFileActions file_actions(verifier_fd);
+    int rc = posix_spawnattr_setpgroup(attributes.get(), 0);
+    if(rc != 0) {
+        throw std::system_error(
+            rc,
+            std::generic_category(),
+            "posix_spawnattr_setpgroup"
+        );
+    }
+
+    sigset_t child_mask;
+    if(sigemptyset(&child_mask) != 0)
+        throw std::system_error(errno, std::generic_category(), "sigemptyset");
+    rc = posix_spawnattr_setsigmask(attributes.get(), &child_mask);
+    if(rc != 0) {
+        throw std::system_error(
+            rc,
+            std::generic_category(),
+            "posix_spawnattr_setsigmask"
+        );
+    }
+
+    sigset_t child_defaults;
+    if(
+        sigemptyset(&child_defaults) != 0 ||
+        sigaddset(&child_defaults, SIGINT) != 0 ||
+        sigaddset(&child_defaults, SIGTERM) != 0
+    ) {
+        throw std::system_error(
+            errno,
+            std::generic_category(),
+            "prepare child signals"
+        );
+    }
+    rc = posix_spawnattr_setsigdefault(attributes.get(), &child_defaults);
+    if(rc != 0) {
+        throw std::system_error(
+            rc,
+            std::generic_category(),
+            "posix_spawnattr_setsigdefault"
+        );
+    }
+
+    constexpr short spawn_flags =
+        POSIX_SPAWN_SETPGROUP |
+        POSIX_SPAWN_SETSIGMASK |
+        POSIX_SPAWN_SETSIGDEF;
+    rc = posix_spawnattr_setflags(attributes.get(), spawn_flags);
+    if(rc != 0) {
+        throw std::system_error(
+            rc,
+            std::generic_category(),
+            "posix_spawnattr_setflags"
+        );
+    }
+
+    pid_t pid = -1;
+    rc = posix_spawn(
+        &pid,
+        path.c_str(),
+        file_actions.get(),
+        attributes.get(),
+        argv.data(),
+        environ
+    );
+    if(rc != 0)
+        throw std::system_error(rc, std::generic_category(), "posix_spawn");
+    return pid;
+}
+
 }
 
 void arm_parent_death_signal(pid_t expected_parent) {
@@ -343,9 +372,7 @@ int run_cancellable_program(
     const std::vector<std::string>& arguments,
     std::stop_token stop,
     std::chrono::steady_clock::duration timeout,
-    const std::function<void(uint8_t)>& status_callback,
-    const std::function<bool()>& cancellation_requested,
-    const std::function<SensitiveBytes()>& password_callback
+    const std::function<bool()>& cancellation_requested
 ) {
     cancellation_point(stop);
     if(cancellation_requested && cancellation_requested())
@@ -357,90 +384,7 @@ int run_cancellable_program(
 
     const auto deadline = std::chrono::steady_clock::now() + timeout;
 
-    std::vector<char*> argv;
-    argv.reserve(arguments.size() + 2);
-    argv.push_back(const_cast<char*>(path.c_str()));
-    for(const std::string& argument : arguments)
-        argv.push_back(const_cast<char*>(argument.c_str()));
-    argv.push_back(nullptr);
-
-    std::optional<Pipe> status_pipe;
-    if(status_callback || password_callback) {
-        status_pipe.emplace(make_pipe(
-            O_CLOEXEC | O_NONBLOCK,
-            "pipe2 authentication status"
-        ));
-        move_above_auth_descriptors(status_pipe->write);
-    }
-
-    std::optional<Pipe> response_pipe;
-    if(password_callback) {
-        response_pipe.emplace(make_pipe(
-            O_CLOEXEC,
-            "pipe2 authentication response"
-        ));
-        move_above_auth_descriptors(response_pipe->read);
-    }
-
-    SpawnAttributes attributes;
-    SpawnFileActions file_actions(
-        status_pipe ? status_pipe->write.get() : -1,
-        response_pipe ? response_pipe->read.get() : -1
-    );
-    int rc = posix_spawnattr_setpgroup(attributes.get(), 0);
-    if(rc != 0)
-        throw std::system_error(rc, std::generic_category(), "posix_spawnattr_setpgroup");
-
-    sigset_t child_mask;
-    if(sigemptyset(&child_mask) != 0)
-        throw std::system_error(errno, std::generic_category(), "sigemptyset");
-    rc = posix_spawnattr_setsigmask(attributes.get(), &child_mask);
-    if(rc != 0)
-        throw std::system_error(rc, std::generic_category(), "posix_spawnattr_setsigmask");
-
-    sigset_t child_defaults;
-    if(
-        sigemptyset(&child_defaults) != 0 ||
-        sigaddset(&child_defaults, SIGINT) != 0 ||
-        sigaddset(&child_defaults, SIGTERM) != 0
-    ) {
-        throw std::system_error(errno, std::generic_category(), "prepare child signals");
-    }
-    rc = posix_spawnattr_setsigdefault(attributes.get(), &child_defaults);
-    if(rc != 0) {
-        throw std::system_error(
-            rc,
-            std::generic_category(),
-            "posix_spawnattr_setsigdefault"
-        );
-    }
-
-    constexpr short spawn_flags =
-        POSIX_SPAWN_SETPGROUP |
-        POSIX_SPAWN_SETSIGMASK |
-        POSIX_SPAWN_SETSIGDEF;
-    rc = posix_spawnattr_setflags(attributes.get(), spawn_flags);
-    if(rc != 0)
-        throw std::system_error(rc, std::generic_category(), "posix_spawnattr_setflags");
-
-    pid_t pid = -1;
-    rc = posix_spawn(
-        &pid,
-        path.c_str(),
-        file_actions.get(),
-        attributes.get(),
-        argv.data(),
-        environ
-    );
-    if(rc != 0)
-        throw std::system_error(rc, std::generic_category(), "posix_spawn");
-
-    if(status_pipe)
-        status_pipe->write.reset();
-    if(response_pipe)
-        response_pipe->read.reset();
-
-    ChildProcess child(pid);
+    ChildProcess child(spawn_program(path, arguments));
     std::mutex wait_mutex;
     std::condition_variable wait_condition;
     std::stop_callback wake_on_cancel(stop, [&wait_condition] {
@@ -449,30 +393,6 @@ int run_cancellable_program(
     std::unique_lock wait_lock(wait_mutex);
 
     while(true) {
-        if(status_pipe) {
-            drain_statuses(status_pipe->read.get(), [&](uint8_t status) {
-                if(status_callback)
-                    status_callback(status);
-                if(
-                    status == static_cast<uint8_t>(
-                        AuthHandlerStatus::password_required
-                    ) &&
-                    password_callback
-                ) {
-                    if(!response_pipe || response_pipe->write.get() < 0) {
-                        throw std::runtime_error(
-                            "Authentication password was requested twice"
-                        );
-                    }
-                    auto password = password_callback();
-                    write_password(
-                        response_pipe->write.get(),
-                        password.bytes()
-                    );
-                    response_pipe->write.reset();
-                }
-            });
-        }
         if(stop.stop_requested()) {
             child.terminate_and_reap();
             throw OperationCancelled{};
@@ -481,15 +401,8 @@ int run_cancellable_program(
             child.terminate_and_reap();
             throw UserInteractionCancelled{};
         }
-        if(const auto status = child.poll()) {
-            if(status_pipe) {
-                drain_statuses(status_pipe->read.get(), [&](uint8_t status) {
-                    if(status_callback)
-                        status_callback(status);
-                });
-            }
+        if(const auto status = child.poll())
             return *status;
-        }
 
         const auto now = std::chrono::steady_clock::now();
         if(now >= deadline) {
@@ -503,6 +416,168 @@ int run_cancellable_program(
                 deadline,
                 now + std::chrono::milliseconds(20)
             ),
+            [stop] { return stop.stop_requested(); }
+        );
+    }
+}
+
+VerificationResult run_cancellable_verifier_program(
+    const std::string& path,
+    const std::vector<std::string>& arguments,
+    StartVerification start,
+    std::stop_token stop,
+    std::chrono::steady_clock::duration timeout,
+    const std::function<void(const VerificationStatus&)>& status_callback,
+    const std::function<SensitiveBytes(const SecretRequired&)>& secret_callback,
+    const std::function<bool()>& cancellation_requested
+) {
+    cancellation_point(stop);
+    if(cancellation_requested && cancellation_requested())
+        throw UserInteractionCancelled{};
+    if(path.empty())
+        throw std::invalid_argument("child program path is empty");
+    if(timeout <= std::chrono::steady_clock::duration::zero())
+        throw std::invalid_argument("child program timeout must be positive");
+    if(!secret_callback)
+        throw std::invalid_argument("verifier secret callback is missing");
+
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    auto sockets = make_verifier_socket_pair();
+    move_above_auth_descriptors(sockets.daemon);
+    move_above_auth_descriptors(sockets.verifier);
+    VerifierSocket socket(sockets.daemon.release());
+    ChildProcess child(spawn_program(
+        path,
+        arguments,
+        sockets.verifier.get()
+    ));
+    sockets.verifier.reset();
+    VerifierConversationState conversation = VerifierAwaitingStart{};
+    VerifierMessage start_message = std::move(start);
+    socket.send(start_message);
+    conversation = advance_verifier_conversation(
+        conversation,
+        VerifierMessageSender::daemon,
+        start_message
+    );
+
+    std::optional<VerificationResult> completion;
+    auto receive_message = [&] {
+        VerifierMessage message = socket.receive();
+        conversation = advance_verifier_conversation(
+            conversation,
+            VerifierMessageSender::pam_verifier,
+            message
+        );
+        if(const auto* status = std::get_if<VerificationStatus>(&message)) {
+            if(status_callback)
+                status_callback(*status);
+            return;
+        }
+        if(const auto* required = std::get_if<SecretRequired>(&message)) {
+            VerifierMessage response = SecretResponse{
+                .secret = secret_callback(*required)
+            };
+            socket.send(response);
+            conversation = advance_verifier_conversation(
+                conversation,
+                VerifierMessageSender::daemon,
+                response
+            );
+            return;
+        }
+        if(const auto* complete = std::get_if<VerificationComplete>(&message)) {
+            completion = complete->result;
+            return;
+        }
+        throw VerifierConversationError(
+            "verifier sent a daemon-only message"
+        );
+    };
+
+    auto send_cancel = [&]() noexcept {
+        if(verifier_conversation_is_terminal(conversation))
+            return;
+        try {
+            VerifierMessage cancel = CancelVerification{};
+            socket.send(cancel);
+            conversation = advance_verifier_conversation(
+                conversation,
+                VerifierMessageSender::daemon,
+                cancel
+            );
+        } catch(...) {
+        }
+    };
+
+    std::mutex wait_mutex;
+    std::condition_variable wait_condition;
+    std::stop_callback wake_on_cancel(stop, [&wait_condition] {
+        wait_condition.notify_all();
+    });
+    std::unique_lock wait_lock(wait_mutex);
+
+    while(true) {
+        while(!completion) {
+            pollfd descriptor{
+                .fd = socket.native_handle(),
+                .events = POLLIN,
+                .revents = 0
+            };
+            int poll_result;
+            do {
+                poll_result = poll(&descriptor, 1, 0);
+            } while(poll_result < 0 && errno == EINTR);
+            if(poll_result < 0) {
+                throw std::system_error(
+                    errno,
+                    std::generic_category(),
+                    "poll verifier socket"
+                );
+            }
+            if((descriptor.revents & POLLIN) == 0)
+                break;
+            receive_message();
+            if(completion)
+                break;
+        }
+
+        if(stop.stop_requested()) {
+            send_cancel();
+            child.terminate_and_reap();
+            throw OperationCancelled{};
+        }
+        if(cancellation_requested && cancellation_requested()) {
+            send_cancel();
+            child.terminate_and_reap();
+            throw UserInteractionCancelled{};
+        }
+        if(const auto child_status = child.poll()) {
+            if(!completion) {
+                throw std::runtime_error(
+                    "verifier exited without a completion message"
+                );
+            }
+            const bool success_exit = *child_status == 0;
+            const bool success_result =
+                *completion == VerificationResult::success;
+            if(success_exit != success_result) {
+                throw std::runtime_error(
+                    "verifier exit status contradicts its result"
+                );
+            }
+            return *completion;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if(now >= deadline) {
+            send_cancel();
+            child.terminate_and_reap();
+            throw UserActionTimedOut{};
+        }
+        wait_condition.wait_until(
+            wait_lock,
+            std::min(deadline, now + std::chrono::milliseconds(20)),
             [stop] { return stop.stop_requested(); }
         );
     }

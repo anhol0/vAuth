@@ -1,8 +1,9 @@
 #include "cancellation.hpp"
 #include "keepalive.hpp"
 #include "test_runner.hpp"
-#include "uv/src/auth_handler_status.hpp"
 #include "uv/src/cancellable_process.hpp"
+#include "uv/src/verifier_conversation.hpp"
+#include "uv/src/verifier_socket.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -108,67 +109,116 @@ bool test_timeout_interrupts_child(const std::string& executable) {
     return true;
 }
 
-bool test_child_status_events(const std::string& executable) {
+vauth::uv::SensitiveBytes test_secret(std::string_view value) {
+    vauth::uv::SensitiveBytes secret(value.size());
+    std::ranges::copy(value, secret.writable_bytes().begin());
+    return secret;
+}
+
+bool test_verifier_preserves_pam_messages(const std::string& executable) {
+    using namespace vauth::uv;
     std::stop_source stop;
-    std::vector<uint8_t> received;
-    CHECK(vauth::uv::run_cancellable_program(
+    std::vector<VerificationStatus> statuses;
+    std::vector<std::string> prompts;
+    std::size_t secret_index = 0;
+    const std::array<std::string_view, 2> secrets{"local-secret", "123456"};
+
+    const auto result = run_cancellable_verifier_program(
         executable,
-        {"--child-status"},
+        {"--child-verifier"},
+        StartVerification{1000, "session-2"},
         stop.get_token(),
         std::chrono::seconds(1),
-        [&received](uint8_t status) {
-            received.push_back(status);
+        [&statuses](const VerificationStatus& status) {
+            statuses.push_back(status);
+        },
+        [&prompts, &secret_index, &secrets](const SecretRequired& required) {
+            prompts.push_back(required.prompt);
+            if(secret_index >= secrets.size())
+                throw std::runtime_error("unexpected verifier prompt");
+            return test_secret(secrets[secret_index++]);
         }
-    ) == 0);
+    );
 
-    const std::vector<uint8_t> expected{
-        static_cast<uint8_t>(
-            vauth::uv::AuthHandlerStatus::fingerprint_required
-        ),
-        static_cast<uint8_t>(
-            vauth::uv::AuthHandlerStatus::fingerprint_failed
-        ),
-        static_cast<uint8_t>(
-            vauth::uv::AuthHandlerStatus::password_required
-        )
+    CHECK(result == VerificationResult::success);
+    CHECK(statuses.size() == 2);
+    const VerificationStatus expected_information{
+        VerificationStatusKind::information,
+        "Touch the security device"
     };
-    CHECK(received == expected);
+    const VerificationStatus expected_error{
+        VerificationStatusKind::error,
+        "No match; try again"
+    };
+    CHECK(statuses[0] == expected_information);
+    CHECK(statuses[1] == expected_error);
+    CHECK(prompts == std::vector<std::string>({"Password:", "One-time code:"}));
+    CHECK(secret_index == secrets.size());
     return true;
 }
 
-bool test_password_delivery(const std::string& executable) {
-    std::stop_source stop;
-    std::size_t password_prompts = 0;
-    CHECK(vauth::uv::run_cancellable_program(
-        executable,
-        {"--child-password"},
-        stop.get_token(),
-        std::chrono::seconds(1),
-        [&password_prompts](uint8_t status) {
-            if(
-                status == static_cast<uint8_t>(
-                    vauth::uv::AuthHandlerStatus::password_required
-                )
-            ) {
-                ++password_prompts;
+int run_test_verifier_child() {
+    using namespace vauth::uv;
+    VerifierSocket socket(VERIFIER_SOCKET_FD);
+    VerifierConversationState state = VerifierAwaitingStart{};
+    VerifierMessage message = socket.receive();
+    state = advance_verifier_conversation(
+        state,
+        VerifierMessageSender::daemon,
+        message
+    );
+    const auto* start = std::get_if<StartVerification>(&message);
+    if(
+        start == nullptr ||
+        start->targetUid != 1000 ||
+        start->sessionId != "session-2"
+    ) {
+        return 1;
+    }
+
+    auto send = [&](VerifierMessage outgoing) {
+        socket.send(outgoing);
+        state = advance_verifier_conversation(
+            state,
+            VerifierMessageSender::pam_verifier,
+            outgoing
+        );
+    };
+    auto request_secret = [&](std::string prompt, std::string_view expected) {
+        send(SecretRequired{std::move(prompt)});
+        VerifierMessage response = socket.receive();
+        state = advance_verifier_conversation(
+            state,
+            VerifierMessageSender::daemon,
+            response
+        );
+        const auto* supplied = std::get_if<SecretResponse>(&response);
+        if(supplied == nullptr || supplied->secret.size() != expected.size())
+            return false;
+        return std::equal(
+            supplied->secret.bytes().begin(),
+            supplied->secret.bytes().end(),
+            expected.begin(),
+            [](uint8_t left, char right) {
+                return left == static_cast<uint8_t>(right);
             }
-        },
-        {},
-        [] {
-            constexpr std::array<uint8_t, 6> password{
-                's', 'e', 'c', 'r', 'e', 't'
-            };
-            vauth::uv::SensitiveBytes result(password.size());
-            std::copy(
-                password.begin(),
-                password.end(),
-                result.writable_bytes().begin()
-            );
-            return result;
-        }
-    ) == 0);
-    CHECK(password_prompts == 1);
-    return true;
+        );
+    };
+
+    send(VerificationStatus{
+        VerificationStatusKind::information,
+        "Touch the security device"
+    });
+    send(VerificationStatus{
+        VerificationStatusKind::error,
+        "No match; try again"
+    });
+    if(!request_secret("Password:", "local-secret"))
+        return 1;
+    if(!request_secret("One-time code:", "123456"))
+        return 1;
+    send(VerificationComplete{VerificationResult::success});
+    return 0;
 }
 
 bool test_external_cancellation_interrupts_child(
@@ -187,7 +237,6 @@ bool test_external_cancellation_interrupts_child(
                 {"--child-wait"},
                 stop.get_token(),
                 std::chrono::seconds(5),
-                {},
                 [&cancellation_requested] {
                     return cancellation_requested.load();
                 }
@@ -218,7 +267,7 @@ bool test_cancellation_uses_graceful_signal(const std::string& executable) {
     CHECK(marker_fd >= 0);
     close(marker_fd);
 
-    std::atomic<bool> ready = false;
+    bool ready = false;
     std::atomic<bool> cancelled = false;
     std::atomic<bool> unexpected_error = false;
     std::jthread worker([&](std::stop_token stop) {
@@ -227,10 +276,7 @@ bool test_cancellation_uses_graceful_signal(const std::string& executable) {
                 executable,
                 {"--child-graceful-cancel", marker_template},
                 stop,
-                std::chrono::seconds(5),
-                [&ready](uint8_t) {
-                    ready = true;
-                }
+                std::chrono::seconds(5)
             ));
         } catch(const OperationCancelled&) {
             cancelled = true;
@@ -241,8 +287,18 @@ bool test_cancellation_uses_graceful_signal(const std::string& executable) {
 
     const auto ready_deadline = std::chrono::steady_clock::now() +
         std::chrono::seconds(1);
-    while(!ready && std::chrono::steady_clock::now() < ready_deadline)
+    while(!ready && std::chrono::steady_clock::now() < ready_deadline) {
+        const int ready_fd = open(
+            marker_template.c_str(),
+            O_RDONLY | O_CLOEXEC
+        );
+        uint8_t marker = 0;
+        ready = ready_fd >= 0 && read(ready_fd, &marker, sizeof(marker)) == 1 &&
+            marker == 1;
+        if(ready_fd >= 0)
+            close(ready_fd);
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
     CHECK(ready);
     worker.request_stop();
     worker.join();
@@ -258,7 +314,7 @@ bool test_cancellation_uses_graceful_signal(const std::string& executable) {
     CHECK(cancelled);
     CHECK(!unexpected_error);
     CHECK(marked);
-    CHECK(marker == 1);
+    CHECK(marker == 2);
     return true;
 }
 
@@ -406,64 +462,12 @@ int main(int argc, char** argv) {
         while(true)
             pause();
     }
-    if(argc == 2 && std::string(argv[1]) == "--child-status") {
-        const std::array<uint8_t, 3> statuses{
-            static_cast<uint8_t>(
-                vauth::uv::AuthHandlerStatus::fingerprint_required
-            ),
-            static_cast<uint8_t>(
-                vauth::uv::AuthHandlerStatus::fingerprint_failed
-            ),
-            static_cast<uint8_t>(
-                vauth::uv::AuthHandlerStatus::password_required
-            )
-        };
-        return write(
-            vauth::uv::AUTH_HANDLER_STATUS_FD,
-            statuses.data(),
-            statuses.size()
-        ) == static_cast<ssize_t>(statuses.size()) ? 0 : 1;
-    }
-    if(argc == 2 && std::string(argv[1]) == "--child-password") {
-        const uint8_t status = static_cast<uint8_t>(
-            vauth::uv::AuthHandlerStatus::password_required
-        );
-        if(
-            write(
-                vauth::uv::AUTH_HANDLER_STATUS_FD,
-                &status,
-                sizeof(status)
-            ) != static_cast<ssize_t>(sizeof(status))
-        ) {
+    if(argc == 2 && std::string(argv[1]) == "--child-verifier") {
+        try {
+            return run_test_verifier_child();
+        } catch(...) {
             return 1;
         }
-
-        std::array<uint8_t, 7> password{};
-        std::size_t used = 0;
-        while(used < password.size()) {
-            const ssize_t count = read(
-                vauth::uv::AUTH_HANDLER_RESPONSE_FD,
-                password.data() + used,
-                password.size() - used
-            );
-            if(count > 0) {
-                used += static_cast<std::size_t>(count);
-                continue;
-            }
-            if(count == 0)
-                break;
-            if(errno == EINTR)
-                continue;
-            return 1;
-        }
-        constexpr std::array<uint8_t, 6> expected{
-            's', 'e', 'c', 'r', 'e', 't'
-        };
-        return
-            used == expected.size() &&
-            std::equal(expected.begin(), expected.end(), password.begin())
-                ? 0
-                : 1;
     }
     if(argc == 3 && std::string(argv[1]) == "--child-graceful-cancel") {
         struct sigaction interrupt_action{};
@@ -477,26 +481,22 @@ int main(int argc, char** argv) {
         if(sigaction(SIGTERM, &term_action, nullptr) != 0)
             return 1;
 
-        const uint8_t ready = static_cast<uint8_t>(
-            vauth::uv::AuthHandlerStatus::fingerprint_required
-        );
-        if(
-            write(
-                vauth::uv::AUTH_HANDLER_STATUS_FD,
-                &ready,
-                sizeof(ready)
-            ) != 1
-        ) {
+        int fd = open(argv[2], O_WRONLY | O_TRUNC | O_CLOEXEC);
+        const uint8_t ready = 1;
+        const bool ready_written =
+            fd >= 0 && write(fd, &ready, sizeof(ready)) == 1;
+        if(fd >= 0)
+            close(fd);
+        if(!ready_written)
             return 1;
-        }
         while(!graceful_cancel_received)
             pause();
 
-        const int fd = open(
+        fd = open(
             argv[2],
             O_WRONLY | O_TRUNC | O_CLOEXEC
         );
-        const uint8_t marker = 1;
+        const uint8_t marker = 2;
         const bool written =
             fd >= 0 && write(fd, &marker, sizeof(marker)) == 1;
         if(fd >= 0)
@@ -515,11 +515,8 @@ int main(int argc, char** argv) {
     runner.run("test_timeout_interrupts_child", [&] {
         return test_timeout_interrupts_child(executable);
     });
-    runner.run("test_child_status_events", [&] {
-        return test_child_status_events(executable);
-    });
-    runner.run("test_password_delivery", [&] {
-        return test_password_delivery(executable);
+    runner.run("test_verifier_preserves_pam_messages", [&] {
+        return test_verifier_preserves_pam_messages(executable);
     });
     runner.run("test_external_cancellation_interrupts_child", [&] {
         return test_external_cancellation_interrupts_child(executable);

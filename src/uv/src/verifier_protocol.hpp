@@ -19,7 +19,7 @@ inline constexpr std::size_t VERIFIER_PROTOCOL_HEADER_SIZE = 2;
 inline constexpr std::size_t MAX_SESSION_ID_SIZE = 255;
 inline constexpr std::size_t MAX_VERIFICATION_TEXT_SIZE = 512;
 inline constexpr std::size_t MAX_VERIFICATION_SECRET_SIZE =
-    MAX_PASSWORD_SIZE;
+    MAX_SECRET_SIZE;
 inline constexpr std::size_t MAX_VERIFIER_PACKET_SIZE =
     VERIFIER_PROTOCOL_HEADER_SIZE + std::max({
         sizeof(uint32_t) + MAX_SESSION_ID_SIZE,
