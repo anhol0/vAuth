@@ -133,12 +133,14 @@ bool test_control_messages_exact_encoding_and_round_trip() {
     const std::array<vauth::uv::VerifierMessage, 7> messages{
         vauth::uv::CancelVerification{},
         vauth::uv::VerificationStatus{
-            vauth::uv::VerificationProgress::interaction_required
+            vauth::uv::VerificationStatusKind::information,
+            "Touch sensor"
         },
         vauth::uv::VerificationStatus{
-            vauth::uv::VerificationProgress::attempt_failed
+            vauth::uv::VerificationStatusKind::error,
+            "No match"
         },
-        vauth::uv::SecretRequired{},
+        vauth::uv::SecretRequired{"Password:"},
         vauth::uv::VerificationComplete{
             vauth::uv::VerificationResult::success
         },
@@ -151,9 +153,18 @@ bool test_control_messages_exact_encoding_and_round_trip() {
     };
     const std::array<std::vector<uint8_t>, 7> expected{
         std::vector<uint8_t>{0x01, 0x03},
-        std::vector<uint8_t>{0x01, 0x04, 0x01},
-        std::vector<uint8_t>{0x01, 0x04, 0x02},
-        std::vector<uint8_t>{0x01, 0x05},
+        std::vector<uint8_t>{
+            0x01, 0x04, 0x01,
+            'T', 'o', 'u', 'c', 'h', ' ', 's', 'e', 'n', 's', 'o', 'r'
+        },
+        std::vector<uint8_t>{
+            0x01, 0x04, 0x02,
+            'N', 'o', ' ', 'm', 'a', 't', 'c', 'h'
+        },
+        std::vector<uint8_t>{
+            0x01, 0x05,
+            'P', 'a', 's', 's', 'w', 'o', 'r', 'd', ':'
+        },
         std::vector<uint8_t>{0x01, 0x06, 0x01},
         std::vector<uint8_t>{0x01, 0x06, 0x02},
         std::vector<uint8_t>{0x01, 0x06, 0x03}
@@ -170,6 +181,12 @@ bool test_control_messages_exact_encoding_and_round_trip() {
             CHECK(
                 std::get<vauth::uv::VerificationStatus>(decoded) ==
                 std::get<vauth::uv::VerificationStatus>(messages[index])
+            );
+        }
+        if(std::holds_alternative<vauth::uv::SecretRequired>(decoded)) {
+            CHECK(
+                std::get<vauth::uv::SecretRequired>(decoded) ==
+                std::get<vauth::uv::SecretRequired>(messages[index])
             );
         }
         if(std::holds_alternative<vauth::uv::VerificationComplete>(decoded)) {
@@ -220,6 +237,141 @@ bool test_maximum_sized_fields_round_trip() {
         std::get<vauth::uv::SecretResponse>(decoded_response).secret.size()
         == vauth::uv::MAX_VERIFICATION_SECRET_SIZE
     );
+
+    const std::string maximum_text(
+        vauth::uv::MAX_VERIFICATION_TEXT_SIZE,
+        'm'
+    );
+    const vauth::uv::VerifierMessage status =
+        vauth::uv::VerificationStatus{
+            vauth::uv::VerificationStatusKind::information,
+            maximum_text
+        };
+    const auto encoded_status = vauth::uv::encode_verifier_message(status);
+    const auto decoded_status = vauth::uv::decode_verifier_message(
+        encoded_status.bytes()
+    );
+    CHECK(
+        std::get<vauth::uv::VerificationStatus>(decoded_status).message ==
+        maximum_text
+    );
+
+    const vauth::uv::VerifierMessage prompt =
+        vauth::uv::SecretRequired{maximum_text};
+    const auto encoded_prompt = vauth::uv::encode_verifier_message(prompt);
+    const auto decoded_prompt = vauth::uv::decode_verifier_message(
+        encoded_prompt.bytes()
+    );
+    CHECK(
+        std::get<vauth::uv::SecretRequired>(decoded_prompt).prompt ==
+        maximum_text
+    );
+    return true;
+}
+
+bool test_display_text_rules_are_enforced() {
+    using namespace vauth::uv;
+    const std::string oversized(MAX_VERIFICATION_TEXT_SIZE + 1, 'x');
+    CHECK(rejects_packet([&] {
+        const VerifierMessage message = VerificationStatus{
+            VerificationStatusKind::information,
+            oversized
+        };
+        static_cast<void>(encode_verifier_message(message));
+    }));
+    CHECK(rejects_packet([&] {
+        const VerifierMessage message = SecretRequired{oversized};
+        static_cast<void>(encode_verifier_message(message));
+    }));
+
+    const std::array<std::string, 4> invalid_text{
+        std::string("line\nfeed", 9),
+        std::string("embedded\0nul", 12),
+        std::string("\xc0\x80", 2),
+        std::string("\xed\xa0\x80", 3)
+    };
+    for(const auto& text : invalid_text) {
+        CHECK(rejects_packet([&] {
+            const VerifierMessage message = VerificationStatus{
+                VerificationStatusKind::error,
+                text
+            };
+            static_cast<void>(encode_verifier_message(message));
+        }));
+        CHECK(rejects_packet([&] {
+            const VerifierMessage message = SecretRequired{text};
+            static_cast<void>(encode_verifier_message(message));
+        }));
+    }
+
+    std::vector<uint8_t> oversized_status(
+        1 + MAX_VERIFICATION_TEXT_SIZE + 1,
+        'x'
+    );
+    oversized_status[0] =
+        static_cast<uint8_t>(VerificationStatusKind::information);
+    CHECK(rejects_packet([&] {
+        static_cast<void>(decode_verifier_message(packet(
+            1, 4, oversized_status
+        )));
+    }));
+
+    std::vector<uint8_t> oversized_prompt(
+        MAX_VERIFICATION_TEXT_SIZE + 1,
+        'x'
+    );
+    CHECK(rejects_packet([&] {
+        static_cast<void>(decode_verifier_message(packet(
+            1, 5, oversized_prompt
+        )));
+    }));
+
+    const std::array<uint8_t, 3> invalid_utf8_status{0x01, 0xc0, 0x80};
+    CHECK(rejects_packet([&] {
+        static_cast<void>(decode_verifier_message(packet(
+            1, 4, invalid_utf8_status
+        )));
+    }));
+    const std::array<uint8_t, 1> control_prompt{'\n'};
+    CHECK(rejects_packet([&] {
+        static_cast<void>(decode_verifier_message(packet(
+            1, 5, control_prompt
+        )));
+    }));
+    return true;
+}
+
+bool test_empty_and_unicode_display_text_round_trip() {
+    using namespace vauth::uv;
+    const std::string lock_symbol("\xf0\x9f\x94\x90", 4);
+    const std::array<VerifierMessage, 3> messages{
+        VerificationStatus{
+            VerificationStatusKind::information,
+            ""
+        },
+        VerificationStatus{
+            VerificationStatusKind::error,
+            lock_symbol
+        },
+        SecretRequired{""}
+    };
+
+    for(const auto& message : messages) {
+        const auto encoded = encode_verifier_message(message);
+        const auto decoded = decode_verifier_message(encoded.bytes());
+        CHECK(decoded.index() == message.index());
+        if(std::holds_alternative<VerificationStatus>(message)) {
+            CHECK(
+                std::get<VerificationStatus>(decoded) ==
+                std::get<VerificationStatus>(message)
+            );
+        } else {
+            CHECK(
+                std::get<SecretRequired>(decoded) ==
+                std::get<SecretRequired>(message)
+            );
+        }
+    }
     return true;
 }
 
@@ -349,11 +501,6 @@ bool test_invalid_control_payloads_are_rejected() {
     }));
     CHECK(rejects_packet([&] {
         static_cast<void>(vauth::uv::decode_verifier_message(packet(
-            1, 5, byte
-        )));
-    }));
-    CHECK(rejects_packet([&] {
-        static_cast<void>(vauth::uv::decode_verifier_message(packet(
             1, 6, byte
         )));
     }));
@@ -370,7 +517,8 @@ bool test_invalid_control_payloads_are_rejected() {
     CHECK(rejects_packet([] {
         const vauth::uv::VerifierMessage message =
             vauth::uv::VerificationStatus{
-                static_cast<vauth::uv::VerificationProgress>(0xff)
+                static_cast<vauth::uv::VerificationStatusKind>(0xff),
+                "Invalid"
             };
         static_cast<void>(vauth::uv::encode_verifier_message(message));
     }));
@@ -404,6 +552,14 @@ int main() {
     runner.run(
         "maximum sized fields round trip",
         test_maximum_sized_fields_round_trip
+    );
+    runner.run(
+        "display text rules are enforced",
+        test_display_text_rules_are_enforced
+    );
+    runner.run(
+        "empty and Unicode display text round trip",
+        test_empty_and_unicode_display_text_round_trip
     );
     runner.run(
         "invalid start requests are rejected",
