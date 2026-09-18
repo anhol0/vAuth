@@ -13,10 +13,11 @@
       <arg name="requestId" type="t" direction="in"/>
       <arg name="approved" type="b" direction="in"/>
     </method>
-    <method name="SubmitPassword">
+    <method name="SubmitSecret">
       <arg name="generation" type="t" direction="in"/>
       <arg name="requestId" type="t" direction="in"/>
-      <arg name="passwordPipe" type="h" direction="in"/>
+      <arg name="promptId" type="t" direction="in"/>
+      <arg name="secretPipe" type="h" direction="in"/>
     </method>
     <method name="CancelInteraction">
       <arg name="generation" type="t" direction="in"/>
@@ -25,9 +26,11 @@
     <signal name="StateChanged">
       <arg name="generation" type="t"/>
       <arg name="requestId" type="t"/>
+      <arg name="promptId" type="t"/>
       <arg name="state" type="s"/>
       <arg name="operation" type="s"/>
       <arg name="relyingPartyId" type="s"/>
+      <arg name="message" type="s"/>
     </signal>
   </interface>
 </node>

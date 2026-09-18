@@ -13,12 +13,12 @@ std::optional<InteractionState> parse_interaction_state(
         return InteractionState::presence_denied;
     if(state == "verification_started")
         return InteractionState::verification_started;
-    if(state == "fingerprint_required")
-        return InteractionState::fingerprint_required;
-    if(state == "fingerprint_failed")
-        return InteractionState::fingerprint_failed;
-    if(state == "password_required")
-        return InteractionState::password_required;
+    if(state == "verification_information")
+        return InteractionState::verification_information;
+    if(state == "verification_error")
+        return InteractionState::verification_error;
+    if(state == "secret_required")
+        return InteractionState::secret_required;
     if(state == "verification_succeeded")
         return InteractionState::verification_succeeded;
     if(state == "verification_failed")
@@ -41,9 +41,9 @@ bool is_terminal(InteractionState state) noexcept {
             return true;
         case InteractionState::presence_required:
         case InteractionState::verification_started:
-        case InteractionState::fingerprint_required:
-        case InteractionState::fingerprint_failed:
-        case InteractionState::password_required:
+        case InteractionState::verification_information:
+        case InteractionState::verification_error:
+        case InteractionState::secret_required:
             return false;
     }
     return true;
@@ -55,6 +55,12 @@ InteractionTracker::InteractionTracker(uint64_t generation) noexcept
 bool InteractionTracker::accept(const InteractionEvent& event) noexcept {
     if(event.generation != generation_ || event.requestId == 0)
         return false;
+    if(
+        (event.state == InteractionState::secret_required) !=
+        (event.promptId != 0)
+    ) {
+        return false;
+    }
 
     const bool starts_interaction =
         event.state == InteractionState::presence_required ||
@@ -67,8 +73,18 @@ bool InteractionTracker::accept(const InteractionEvent& event) noexcept {
         return false;
     }
 
-    if(is_terminal(event.state))
+    if(event.state == InteractionState::secret_required) {
+        if(event.promptId == activePromptId_)
+            return false;
+        activePromptId_ = event.promptId;
+    } else {
+        activePromptId_ = 0;
+    }
+
+    if(is_terminal(event.state)) {
         activeRequestId_.reset();
+        activePromptId_ = 0;
+    }
     return true;
 }
 
@@ -112,44 +128,40 @@ UiPresentation UiModel::apply(const InteractionEvent& event) {
             result.message = "The passkey operation was denied.";
             break;
         case InteractionState::verification_started:
-        case InteractionState::fingerprint_required:
-            result.view = ViewKind::fingerprint;
+            result.view = ViewKind::verification;
             result.animation = AnimationKind::waiting;
             result.title = "Verify your identity";
-            result.message = "Touch the fingerprint reader to authorize.";
+            result.message = "Follow the verification instructions.";
             break;
-        case InteractionState::fingerprint_failed:
-            result.view = ViewKind::fingerprint;
+        case InteractionState::verification_information:
+            result.view = ViewKind::verification;
+            result.animation = AnimationKind::waiting;
+            result.title = "Verify your identity";
+            result.message = event.message;
+            break;
+        case InteractionState::verification_error:
+            result.view = ViewKind::verification;
             result.animation = AnimationKind::failure;
-            result.title = "Fingerprint not recognized";
-            result.message = "Try again or use your password.";
+            result.title = "Verification needs attention";
+            result.message = event.message;
             break;
-        case InteractionState::password_required:
-            result.view = ViewKind::password;
-            result.title = "Enter your password";
-            result.message = "Use your local account password to authorize.";
+        case InteractionState::secret_required:
+            result.view = ViewKind::secret;
+            result.animation = AnimationKind::waiting;
+            result.title = "Verify your identity";
+            result.message = event.message;
             break;
         case InteractionState::verification_succeeded:
-            result.view = currentView_ == ViewKind::fingerprint
-                ? ViewKind::fingerprint
-                : ViewKind::status;
-            result.animation = currentView_ == ViewKind::fingerprint
-                ? AnimationKind::success
-                : AnimationKind::none;
+            result.view = ViewKind::verification;
+            result.animation = AnimationKind::success;
             result.title = "Identity verified";
             result.message = "The passkey operation can continue.";
             break;
         case InteractionState::verification_failed:
-            result.view = currentView_ == ViewKind::password
-                ? ViewKind::fingerprint
-                : ViewKind::status;
-            result.animation = currentView_ == ViewKind::password
-                ? AnimationKind::failure
-                : AnimationKind::none;
+            result.view = ViewKind::verification;
+            result.animation = AnimationKind::failure;
             result.title = "Verification failed";
-            result.message = currentView_ == ViewKind::password
-                ? "The fallback verification method was unsuccessful."
-                : "Your identity could not be verified.";
+            result.message = "Your identity could not be verified.";
             break;
         case InteractionState::cancelled:
             result.view = ViewKind::status;
@@ -163,7 +175,6 @@ UiPresentation UiModel::apply(const InteractionEvent& event) {
             break;
     }
 
-    currentView_ = result.view;
     return result;
 }
 

@@ -12,9 +12,9 @@ enum class InteractionState {
     presence_approved,
     presence_denied,
     verification_started,
-    fingerprint_required,
-    fingerprint_failed,
-    password_required,
+    verification_information,
+    verification_error,
+    secret_required,
     verification_succeeded,
     verification_failed,
     cancelled,
@@ -24,9 +24,11 @@ enum class InteractionState {
 struct InteractionEvent {
     uint64_t generation;
     uint64_t requestId;
+    uint64_t promptId = 0;
     InteractionState state;
     std::string operation;
     std::string relyingPartyId;
+    std::string message;
 };
 
 [[nodiscard]] std::optional<InteractionState> parse_interaction_state(
@@ -45,12 +47,13 @@ public:
 private:
     uint64_t generation_;
     std::optional<uint64_t> activeRequestId_;
+    uint64_t activePromptId_ = 0;
 };
 
 enum class ViewKind {
     presence,
-    fingerprint,
-    password,
+    verification,
+    secret,
     status
 };
 
@@ -73,9 +76,6 @@ struct UiPresentation {
 class UiModel {
 public:
     [[nodiscard]] UiPresentation apply(const InteractionEvent& event);
-
-private:
-    ViewKind currentView_ = ViewKind::status;
 };
 
 } // namespace vauth::client

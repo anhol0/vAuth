@@ -34,9 +34,9 @@ enum class UserInteractionState {
     presence_approved,
     presence_denied,
     verification_started,
-    fingerprint_required,
-    fingerprint_failed,
-    password_required,
+    verification_information,
+    verification_error,
+    secret_required,
     verification_succeeded,
     verification_failed,
     cancelled,
@@ -69,12 +69,12 @@ enum class UserInteractionState {
             return "presence_denied";
         case UserInteractionState::verification_started:
             return "verification_started";
-        case UserInteractionState::fingerprint_required:
-            return "fingerprint_required";
-        case UserInteractionState::fingerprint_failed:
-            return "fingerprint_failed";
-        case UserInteractionState::password_required:
-            return "password_required";
+        case UserInteractionState::verification_information:
+            return "verification_information";
+        case UserInteractionState::verification_error:
+            return "verification_error";
+        case UserInteractionState::secret_required:
+            return "secret_required";
         case UserInteractionState::verification_succeeded:
             return "verification_succeeded";
         case UserInteractionState::verification_failed:
@@ -100,10 +100,11 @@ public:
         const UserContext& user,
         const UserInteractionRequest& request
     ) = 0;
-    virtual void publish_state(
+    [[nodiscard]] virtual uint64_t publish_state(
         const UserContext& user,
         const UserInteractionRequest& request,
-        UserInteractionState state
+        UserInteractionState state,
+        std::string_view message = {}
     ) = 0;
     virtual void end_interaction(
         const UserContext& user,
@@ -115,9 +116,10 @@ public:
         std::stop_token stop,
         std::chrono::steady_clock::duration timeout
     ) = 0;
-    [[nodiscard]] virtual vauth::uv::SensitiveBytes wait_for_password(
+    [[nodiscard]] virtual vauth::uv::SensitiveBytes wait_for_secret(
         const UserContext& user,
         const UserInteractionRequest& request,
+        uint64_t prompt_id,
         std::stop_token stop,
         std::chrono::steady_clock::duration timeout
     ) = 0;

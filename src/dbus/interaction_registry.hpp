@@ -21,8 +21,10 @@ struct PendingInteraction {
     UserInteractionOperation operation;
     std::string relyingPartyId;
     std::optional<UserInteractionState> state;
+    std::string message;
+    uint64_t promptId = 0;
     std::optional<bool> presenceResponse;
-    bool passwordSubmitted = false;
+    bool secretSubmitted = false;
     bool cancelRequested = false;
     bool responseClosed = false;
 };
@@ -36,7 +38,7 @@ enum class PresenceWaitResult {
     invalidated
 };
 
-enum class PasswordWaitStatus {
+enum class SecretWaitStatus {
     provided,
     client_cancelled,
     platform_cancelled,
@@ -44,9 +46,18 @@ enum class PasswordWaitStatus {
     invalidated
 };
 
-struct PasswordWaitResult {
-    PasswordWaitStatus status;
-    vauth::uv::SensitiveBytes password;
+struct SecretWaitResult {
+    SecretWaitStatus status;
+    vauth::uv::SensitiveBytes secret;
+};
+
+struct InteractionTransition {
+    bool shouldPublish;
+    uint64_t promptId;
+
+    explicit operator bool() const noexcept {
+        return shouldPublish;
+    }
 };
 
 class InteractionRegistry {
@@ -56,20 +67,22 @@ public:
         UserInteractionOperation operation,
         std::string_view relying_party_id
     );
-    [[nodiscard]] bool transition(
+    [[nodiscard]] InteractionTransition transition(
         const UserContext& user,
         uint64_t request_id,
-        UserInteractionState state
+        UserInteractionState state,
+        std::string_view message = {}
     );
     void respond_to_presence(
         const UserContext& user,
         uint64_t request_id,
         bool approved
     );
-    void submit_password(
+    void submit_secret(
         const UserContext& user,
         uint64_t request_id,
-        vauth::uv::SensitiveBytes password
+        uint64_t prompt_id,
+        vauth::uv::SensitiveBytes secret
     );
     void request_cancel(
         const UserContext& user,
@@ -81,9 +94,10 @@ public:
         std::stop_token stop,
         std::chrono::steady_clock::duration timeout
     );
-    [[nodiscard]] PasswordWaitResult wait_for_password(
+    [[nodiscard]] SecretWaitResult wait_for_secret(
         const UserContext& user,
         uint64_t request_id,
+        uint64_t prompt_id,
         std::stop_token stop,
         std::chrono::steady_clock::duration timeout
     );
@@ -102,8 +116,9 @@ private:
     mutable std::mutex mutex_;
     std::condition_variable condition_;
     std::optional<PendingInteraction> current_;
-    std::optional<vauth::uv::SensitiveBytes> passwordResponse_;
+    std::optional<vauth::uv::SensitiveBytes> secretResponse_;
     uint64_t nextRequestId_ = 1;
+    uint64_t nextPromptId_ = 1;
 };
 
 }

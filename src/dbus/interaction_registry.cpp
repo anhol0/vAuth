@@ -1,5 +1,7 @@
 #include "interaction_registry.hpp"
 
+#include "uv/src/verifier_protocol.hpp"
+
 #include <chrono>
 #include <limits>
 #include <stdexcept>
@@ -31,9 +33,9 @@ bool is_terminal(UserInteractionState state) noexcept {
             return true;
         case UserInteractionState::presence_required:
         case UserInteractionState::verification_started:
-        case UserInteractionState::fingerprint_required:
-        case UserInteractionState::fingerprint_failed:
-        case UserInteractionState::password_required:
+        case UserInteractionState::verification_information:
+        case UserInteractionState::verification_error:
+        case UserInteractionState::secret_required:
             return false;
     }
     return true;
@@ -42,9 +44,9 @@ bool is_terminal(UserInteractionState state) noexcept {
 bool is_verification_progress(UserInteractionState state) noexcept {
     switch(state) {
         case UserInteractionState::verification_started:
-        case UserInteractionState::fingerprint_required:
-        case UserInteractionState::fingerprint_failed:
-        case UserInteractionState::password_required:
+        case UserInteractionState::verification_information:
+        case UserInteractionState::verification_error:
+        case UserInteractionState::secret_required:
             return true;
         case UserInteractionState::presence_required:
         case UserInteractionState::presence_approved:
@@ -110,18 +112,18 @@ uint64_t InteractionRegistry::begin(
         .relyingPartyId = std::string(relying_party_id),
         .state = std::nullopt,
         .presenceResponse = std::nullopt,
-        .passwordSubmitted = false,
         .cancelRequested = false,
         .responseClosed = false
     };
-    passwordResponse_.reset();
+    secretResponse_.reset();
     return request_id;
 }
 
-bool InteractionRegistry::transition(
+InteractionTransition InteractionRegistry::transition(
     const UserContext& user,
     uint64_t request_id,
-    UserInteractionState state
+    UserInteractionState state,
+    std::string_view message
 ) {
     std::lock_guard lock(mutex_);
     if(
@@ -134,20 +136,51 @@ bool InteractionRegistry::transition(
     }
     if(!valid_transition(current_->state, state))
         throw std::logic_error("Invalid interaction state transition");
+    const bool accepts_message =
+        state == UserInteractionState::verification_information ||
+        state == UserInteractionState::verification_error ||
+        state == UserInteractionState::secret_required;
+    if(!accepts_message && !message.empty()) {
+        throw std::invalid_argument(
+            "Interaction state does not accept display text"
+        );
+    }
+    if(message.size() > vauth::uv::MAX_VERIFICATION_TEXT_SIZE) {
+        throw std::invalid_argument(
+            "Interaction display text exceeds the protocol limit"
+        );
+    }
+    if(
+        state == UserInteractionState::secret_required &&
+        (nextPromptId_ == 0 ||
+            nextPromptId_ == std::numeric_limits<uint64_t>::max())
+    ) {
+        throw std::overflow_error("Interaction prompt ID is exhausted");
+    }
     if(
         current_->cancelRequested &&
         state != UserInteractionState::cancelled
     ) {
-        return false;
+        return {.shouldPublish = false, .promptId = 0};
     }
 
     current_->state = state;
+    current_->message = std::string(message);
+    uint64_t prompt_id = 0;
+    if(state == UserInteractionState::secret_required) {
+        prompt_id = nextPromptId_++;
+        current_->promptId = prompt_id;
+        current_->secretSubmitted = false;
+        secretResponse_.reset();
+    } else {
+        current_->promptId = 0;
+    }
     if(is_terminal(state)) {
         current_.reset();
-        passwordResponse_.reset();
+        secretResponse_.reset();
         condition_.notify_all();
     }
-    return true;
+    return {.shouldPublish = true, .promptId = prompt_id};
 }
 
 void InteractionRegistry::respond_to_presence(
@@ -171,25 +204,28 @@ void InteractionRegistry::respond_to_presence(
     condition_.notify_all();
 }
 
-void InteractionRegistry::submit_password(
+void InteractionRegistry::submit_secret(
     const UserContext& user,
     uint64_t request_id,
-    vauth::uv::SensitiveBytes password
+    uint64_t prompt_id,
+    vauth::uv::SensitiveBytes secret
 ) {
     std::lock_guard lock(mutex_);
     if(
         request_id == 0 ||
+        prompt_id == 0 ||
         !current_ ||
         current_->requestId != request_id ||
+        current_->promptId != prompt_id ||
         !same_user(current_->user, user) ||
-        current_->state != UserInteractionState::password_required ||
-        current_->passwordSubmitted ||
+        current_->state != UserInteractionState::secret_required ||
+        current_->secretSubmitted ||
         current_->cancelRequested
     ) {
-        throw std::runtime_error("Password response is not currently accepted");
+        throw std::runtime_error("Secret response is not currently accepted");
     }
-    current_->passwordSubmitted = true;
-    passwordResponse_.emplace(std::move(password));
+    current_->secretSubmitted = true;
+    secretResponse_.emplace(std::move(secret));
     condition_.notify_all();
 }
 
@@ -255,14 +291,15 @@ PresenceWaitResult InteractionRegistry::wait_for_presence(
     }
 }
 
-PasswordWaitResult InteractionRegistry::wait_for_password(
+SecretWaitResult InteractionRegistry::wait_for_secret(
     const UserContext& user,
     uint64_t request_id,
+    uint64_t prompt_id,
     std::stop_token stop,
     std::chrono::steady_clock::duration timeout
 ) {
     if(timeout <= std::chrono::steady_clock::duration::zero())
-        throw std::invalid_argument("Password timeout must be positive");
+        throw std::invalid_argument("Secret timeout must be positive");
 
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     std::unique_lock lock(mutex_);
@@ -272,26 +309,28 @@ PasswordWaitResult InteractionRegistry::wait_for_password(
 
     while(true) {
         if(
+            prompt_id == 0 ||
             !current_ ||
             current_->requestId != request_id ||
+            current_->promptId != prompt_id ||
             !same_user(current_->user, user)
         ) {
-            return {PasswordWaitStatus::invalidated, {}};
+            return {SecretWaitStatus::invalidated, {}};
         }
         if(stop.stop_requested()) {
             current_->responseClosed = true;
-            return {PasswordWaitStatus::platform_cancelled, {}};
+            return {SecretWaitStatus::platform_cancelled, {}};
         }
         if(current_->cancelRequested)
-            return {PasswordWaitStatus::client_cancelled, {}};
-        if(passwordResponse_) {
-            vauth::uv::SensitiveBytes password = std::move(*passwordResponse_);
-            passwordResponse_.reset();
-            return {PasswordWaitStatus::provided, std::move(password)};
+            return {SecretWaitStatus::client_cancelled, {}};
+        if(secretResponse_) {
+            vauth::uv::SensitiveBytes secret = std::move(*secretResponse_);
+            secretResponse_.reset();
+            return {SecretWaitStatus::provided, std::move(secret)};
         }
         if(std::chrono::steady_clock::now() >= deadline) {
             current_->responseClosed = true;
-            return {PasswordWaitStatus::timed_out, {}};
+            return {SecretWaitStatus::timed_out, {}};
         }
         condition_.wait_until(lock, deadline);
     }
@@ -329,7 +368,7 @@ bool InteractionRegistry::end(
             return false;
         }
         current_.reset();
-        passwordResponse_.reset();
+        secretResponse_.reset();
         condition_.notify_all();
         return true;
     } catch(...) {
@@ -344,7 +383,7 @@ void InteractionRegistry::clear_for(
         std::lock_guard lock(mutex_);
         if(current_ && same_user(current_->user, user)) {
             current_.reset();
-            passwordResponse_.reset();
+            secretResponse_.reset();
             condition_.notify_all();
         }
     } catch(...) {

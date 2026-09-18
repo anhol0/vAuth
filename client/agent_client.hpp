@@ -23,9 +23,10 @@ public:
     [[nodiscard]] bool is_active(uint64_t request_id) const noexcept;
 
     void respond_to_presence(uint64_t request_id, bool approved);
-    void submit_password(
+    void submit_secret(
         uint64_t request_id,
-        std::span<const uint8_t> password
+        uint64_t prompt_id,
+        std::span<const uint8_t> secret
     );
     void cancel(uint64_t request_id);
 

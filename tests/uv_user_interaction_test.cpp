@@ -51,11 +51,14 @@ public:
         return nextRequestId;
     }
 
-    void publish_state(
+    uint64_t publish_state(
         const UserContext&,
         const UserInteractionRequest&,
-        UserInteractionState
-    ) override {}
+        UserInteractionState,
+        std::string_view
+    ) override {
+        return 0;
+    }
 
     void end_interaction(
         const UserContext&,
@@ -72,9 +75,10 @@ public:
         return UserInteractionResult::approved;
     }
 
-    [[nodiscard]] vauth::uv::SensitiveBytes wait_for_password(
+    [[nodiscard]] vauth::uv::SensitiveBytes wait_for_secret(
         const UserContext&,
         const UserInteractionRequest&,
+        uint64_t,
         std::stop_token,
         std::chrono::steady_clock::duration
     ) override {

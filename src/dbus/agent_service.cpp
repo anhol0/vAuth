@@ -204,9 +204,11 @@ bool session_is_still_active(const UserContext& context) noexcept {
 struct StateEvent {
     UserContext user;
     uint64_t requestId;
+    uint64_t promptId;
     UserInteractionOperation operation;
     UserInteractionState state;
     std::string relyingPartyId;
+    std::string message;
 };
 
 }
@@ -242,15 +244,19 @@ public:
         state_signal.withParameters<
             uint64_t,
             uint64_t,
+            uint64_t,
+            std::string,
             std::string,
             std::string,
             std::string
         >(
             "generation",
             "requestId",
+            "promptId",
             "state",
             "operation",
-            "relyingPartyId"
+            "relyingPartyId",
+            "message"
         );
 
         auto presence_method = sdbus::registerMethod(
@@ -266,17 +272,18 @@ public:
             respond_to_presence(std::move(call));
         };
 
-        auto password_method = sdbus::registerMethod(
-            std::string(SUBMIT_PASSWORD_METHOD)
+        auto secret_method = sdbus::registerMethod(
+            std::string(SUBMIT_SECRET_METHOD)
         );
-        password_method.inputSignature = sdbus::Signature{"tth"};
-        password_method.inputParamNames = {
+        secret_method.inputSignature = sdbus::Signature{"ttth"};
+        secret_method.inputParamNames = {
             "generation",
             "requestId",
-            "passwordPipe"
+            "promptId",
+            "secretPipe"
         };
-        password_method.callbackHandler = [this](sdbus::MethodCall call) {
-            submit_password(std::move(call));
+        secret_method.callbackHandler = [this](sdbus::MethodCall call) {
+            submit_secret(std::move(call));
         };
 
         auto cancel_method = sdbus::registerMethod(
@@ -292,7 +299,7 @@ public:
             std::move(register_method),
             std::move(unregister_method),
             std::move(presence_method),
-            std::move(password_method),
+            std::move(secret_method),
             std::move(cancel_method),
             std::move(state_signal)
         ).forInterface(std::string(INTERFACE_NAME), sdbus::return_slot);
@@ -374,10 +381,11 @@ public:
         );
     }
 
-    void publish_state(
+    [[nodiscard]] uint64_t publish_state(
         const UserContext& user,
         const UserInteractionRequest& request,
-        UserInteractionState state
+        UserInteractionState state,
+        std::string_view message
     ) {
         throw_if_failed();
         if(
@@ -385,27 +393,31 @@ public:
             !user.session ||
             !registry_.is_current(user)
         ) {
-            return;
+            return 0;
         }
-        if(!interactions_.transition(
+        const auto transition = interactions_.transition(
             user,
             request.requestId,
-            state
-        )) {
-            return;
-        }
+            state,
+            message
+        );
+        if(!transition)
+            return 0;
 
         {
             std::lock_guard lock(queueMutex_);
             events_.push_back({
                 .user = user,
                 .requestId = request.requestId,
+                .promptId = transition.promptId,
                 .operation = request.operation,
                 .state = state,
-                .relyingPartyId = std::string(request.relyingPartyId)
+                .relyingPartyId = std::string(request.relyingPartyId),
+                .message = std::string(message)
             });
         }
         wake();
+        return transition.promptId;
     }
 
     void end_interaction(
@@ -447,32 +459,34 @@ public:
         throw std::logic_error("Unknown presence response state");
     }
 
-    [[nodiscard]] vauth::uv::SensitiveBytes wait_for_password(
+    [[nodiscard]] vauth::uv::SensitiveBytes wait_for_secret(
         const UserContext& user,
         const UserInteractionRequest& request,
+        uint64_t prompt_id,
         std::stop_token stop,
         std::chrono::steady_clock::duration timeout
     ) {
         throw_if_failed();
-        auto result = interactions_.wait_for_password(
+        auto result = interactions_.wait_for_secret(
             user,
             request.requestId,
+            prompt_id,
             stop,
             timeout
         );
         switch(result.status) {
-            case PasswordWaitStatus::provided:
-                return std::move(result.password);
-            case PasswordWaitStatus::timed_out:
+            case SecretWaitStatus::provided:
+                return std::move(result.secret);
+            case SecretWaitStatus::timed_out:
                 throw UserActionTimedOut{};
-            case PasswordWaitStatus::client_cancelled:
+            case SecretWaitStatus::client_cancelled:
                 throw UserInteractionCancelled{};
-            case PasswordWaitStatus::platform_cancelled:
+            case SecretWaitStatus::platform_cancelled:
                 throw OperationCancelled{};
-            case PasswordWaitStatus::invalidated:
+            case SecretWaitStatus::invalidated:
                 throw UserInteractionUnavailable{};
         }
-        throw std::logic_error("Unknown password response state");
+        throw std::logic_error("Unknown secret response state");
     }
 
     [[nodiscard]] bool cancellation_requested(
@@ -563,21 +577,23 @@ private:
         }
     }
 
-    void submit_password(sdbus::MethodCall call) noexcept {
+    void submit_secret(sdbus::MethodCall call) noexcept {
         try {
             uint64_t generation = 0;
             uint64_t request_id = 0;
-            sdbus::UnixFd password_pipe;
-            call >> generation >> request_id >> password_pipe;
+            uint64_t prompt_id = 0;
+            sdbus::UnixFd secret_pipe;
+            call >> generation >> request_id >> prompt_id >> secret_pipe;
             const UserContext user = registered_caller(call, generation);
-            interactions_.submit_password(
+            interactions_.submit_secret(
                 user,
                 request_id,
-                read_secret_pipe(password_pipe.get())
+                prompt_id,
+                read_secret_pipe(secret_pipe.get())
             );
             call.createReply().send();
 #ifdef DEBUG
-            log_dbus("D-Bus: received SubmitPassword");
+            log_dbus("D-Bus: received SubmitSecret");
 #endif
         } catch(const std::exception& error) {
             try {
@@ -734,9 +750,11 @@ private:
             signal
                 << event.user.session->generation
                 << event.requestId
+                << event.promptId
                 << std::string(user_interaction_state_name(event.state))
                 << std::string(user_interaction_operation_name(event.operation))
-                << event.relyingPartyId;
+                << event.relyingPartyId
+                << event.message;
             signal.send();
 #ifdef DEBUG
             std::string message = "D-Bus: sent StateChanged (";
@@ -858,12 +876,13 @@ uint64_t AgentService::begin_interaction(
     return impl_->begin_interaction(user, request);
 }
 
-void AgentService::publish_state(
+uint64_t AgentService::publish_state(
     const UserContext& user,
     const UserInteractionRequest& request,
-    UserInteractionState state
+    UserInteractionState state,
+    std::string_view message
 ) {
-    impl_->publish_state(user, request, state);
+    return impl_->publish_state(user, request, state, message);
 }
 
 void AgentService::end_interaction(
@@ -882,13 +901,14 @@ UserInteractionResult AgentService::wait_for_presence(
     return impl_->wait_for_presence(user, request, stop, timeout);
 }
 
-vauth::uv::SensitiveBytes AgentService::wait_for_password(
+vauth::uv::SensitiveBytes AgentService::wait_for_secret(
     const UserContext& user,
     const UserInteractionRequest& request,
+    uint64_t prompt_id,
     std::stop_token stop,
     std::chrono::steady_clock::duration timeout
 ) {
-    return impl_->wait_for_password(user, request, stop, timeout);
+    return impl_->wait_for_secret(user, request, prompt_id, stop, timeout);
 }
 
 bool AgentService::cancellation_requested(

@@ -49,7 +49,7 @@ export component AppWindow inherits Window {
     in-out property <string> heading: "vAuth";
     in-out property <string> message: "Waiting for an authentication request.";
     in-out property <string> relying-party-id: "";
-    in-out property <string> password-text: "";
+    in-out property <string> secret-text: "";
     in-out property <bool> interaction-active: false;
     in-out property <image> lottie-frame;
     in-out property <string> animation-kind: "waiting";
@@ -58,7 +58,7 @@ export component AppWindow inherits Window {
     callback approve-presence();
     callback deny-presence();
     callback cancel-interaction();
-    callback submit-password(string);
+    callback submit-secret(string);
 
     init => {
         Palette.color-scheme = ColorScheme.dark;
@@ -91,7 +91,7 @@ export component AppWindow inherits Window {
                 overflow: elide;
             }
 
-            if root.view == "fingerprint": HorizontalBox {
+            if root.view == "verification": HorizontalBox {
                 alignment: center;
                 height: 145px;
 
@@ -103,7 +103,7 @@ export component AppWindow inherits Window {
                 }
             }
 
-            if root.view != "fingerprint": Rectangle {
+            if root.view != "verification": Rectangle {
                 height: 72px;
                 background: transparent;
 
@@ -119,7 +119,7 @@ export component AppWindow inherits Window {
                 }
             }
 
-            if root.view == "fingerprint": Text {
+            if root.view == "verification": Text {
                 text: root.message;
                 font-size: 15px;
                 wrap: word-wrap;
@@ -127,7 +127,7 @@ export component AppWindow inherits Window {
                 color: white;
             }
 
-            if root.view == "password": HorizontalLayout {
+            if root.view == "secret": HorizontalLayout {
                 height: 52px;
                 alignment: center;
 
@@ -136,23 +136,23 @@ export component AppWindow inherits Window {
                     height: 52px;
                     background: transparent;
 
-                    password-input := LineEdit {
+                    secret-input := LineEdit {
                         width: 100%;
                         height: 100%;
                         input-type: password;
-                        text <=> root.password-text;
-                        accessible-label: "Password";
+                        text <=> root.secret-text;
+                        accessible-label: "Verification secret";
                         accepted => {
-                            root.submit-password(root.password-text);
-                            root.password-text = "";
+                            root.submit-secret(root.secret-text);
+                            root.secret-text = "";
                         }
                     }
 
-                    if password-input.text == "": Text {
+                    if secret-input.text == "": Text {
                         x: 16px;
                         width: parent.width - 56px;
                         height: 100%;
-                        text: "Password";
+                        text: "Secret";
                         color: #c7c7c7;
                         font-size: 16px;
                         vertical-alignment: center;
@@ -178,7 +178,7 @@ export component AppWindow inherits Window {
                 }
             }
 
-            if root.view == "fingerprint" && root.interaction-active: HorizontalLayout {
+            if root.view == "verification" && root.interaction-active: HorizontalLayout {
                 alignment: center;
 
                 ActionButton {
@@ -188,7 +188,7 @@ export component AppWindow inherits Window {
                 }
             }
 
-            if root.view == "password" && root.interaction-active: HorizontalLayout {
+            if root.view == "secret" && root.interaction-active: HorizontalLayout {
                 alignment: center;
                 spacing: 12px;
 
@@ -203,8 +203,8 @@ export component AppWindow inherits Window {
                     primary: true;
                     width: 100px;
                     clicked => {
-                        root.submit-password(root.password-text);
-                        root.password-text = "";
+                        root.submit-secret(root.secret-text);
+                        root.secret-text = "";
                     }
                 }
             }

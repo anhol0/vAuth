@@ -23,10 +23,11 @@ public:
         const UserContext& user,
         const UserInteractionRequest& request
     ) override;
-    void publish_state(
+    [[nodiscard]] uint64_t publish_state(
         const UserContext& user,
         const UserInteractionRequest& request,
-        UserInteractionState state
+        UserInteractionState state,
+        std::string_view message = {}
     ) override;
     void end_interaction(
         const UserContext& user,
@@ -38,9 +39,10 @@ public:
         std::stop_token stop,
         std::chrono::steady_clock::duration timeout
     ) override;
-    [[nodiscard]] vauth::uv::SensitiveBytes wait_for_password(
+    [[nodiscard]] vauth::uv::SensitiveBytes wait_for_secret(
         const UserContext& user,
         const UserInteractionRequest& request,
+        uint64_t prompt_id,
         std::stop_token stop,
         std::chrono::steady_clock::duration timeout
     ) override;

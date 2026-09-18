@@ -24,7 +24,7 @@
 namespace vauth::client {
 namespace {
 
-constexpr std::size_t MAX_PASSWORD_SIZE = 1024;
+constexpr std::size_t MAX_SECRET_SIZE = 1024;
 constexpr std::size_t MAX_EARLY_EVENTS = 32;
 
 class UniqueFd {
@@ -70,7 +70,7 @@ std::pair<UniqueFd, UniqueFd> make_pipe() {
         throw std::system_error(
             errno,
             std::generic_category(),
-            "create password pipe"
+            "create secret pipe"
         );
     }
     return {UniqueFd(descriptors[0]), UniqueFd(descriptors[1])};
@@ -93,7 +93,7 @@ void write_all(int fd, std::span<const uint8_t> bytes) {
         throw std::system_error(
             count < 0 ? errno : EIO,
             std::generic_category(),
-            "write password pipe"
+            "write secret pipe"
         );
     }
 }
@@ -118,9 +118,11 @@ public:
             [this](
                 uint64_t signal_generation,
                 uint64_t request_id,
+                uint64_t prompt_id,
                 const std::string& state_name,
                 const std::string& operation,
-                const std::string& relying_party_id
+                const std::string& relying_party_id,
+                const std::string& message
             ) {
                 const auto state = parse_interaction_state(state_name);
                 if(!state)
@@ -129,9 +131,11 @@ public:
                 InteractionEvent event{
                     .generation = signal_generation,
                     .requestId = request_id,
+                    .promptId = prompt_id,
                     .state = *state,
                     .operation = operation,
-                    .relyingPartyId = relying_party_id
+                    .relyingPartyId = relying_party_id,
+                    .message = message
                 };
                 receive_event(std::move(event));
             },
@@ -194,27 +198,30 @@ public:
         ).withArguments(generation_, request_id, approved);
     }
 
-    void submit_password(
+    void submit_secret(
         uint64_t request_id,
-        std::span<const uint8_t> password
+        uint64_t prompt_id,
+        std::span<const uint8_t> secret
     ) {
         require_active(request_id);
         if(
-            password.size() > MAX_PASSWORD_SIZE ||
-            std::ranges::find(password, uint8_t{0}) != password.end()
+            prompt_id == 0 ||
+            secret.size() > MAX_SECRET_SIZE ||
+            std::ranges::find(secret, uint8_t{0}) != secret.end()
         ) {
-            throw std::invalid_argument("Invalid password response");
+            throw std::invalid_argument("Invalid secret response");
         }
         auto [read_end, write_end] = make_pipe();
-        write_all(write_end.get(), password);
+        write_all(write_end.get(), secret);
         write_end.reset();
         proxy_->callMethod(
-            std::string(vauth::dbus::SUBMIT_PASSWORD_METHOD)
+            std::string(vauth::dbus::SUBMIT_SECRET_METHOD)
         ).onInterface(
             std::string(vauth::dbus::INTERFACE_NAME)
         ).withArguments(
             generation_,
             request_id,
+            prompt_id,
             sdbus::UnixFd{read_end.get()}
         );
     }
@@ -290,11 +297,12 @@ void AgentClient::respond_to_presence(
     impl_->respond_to_presence(request_id, approved);
 }
 
-void AgentClient::submit_password(
+void AgentClient::submit_secret(
     uint64_t request_id,
-    std::span<const uint8_t> password
+    uint64_t prompt_id,
+    std::span<const uint8_t> secret
 ) {
-    impl_->submit_password(request_id, password);
+    impl_->submit_secret(request_id, prompt_id, secret);
 }
 
 void AgentClient::cancel(uint64_t request_id) {

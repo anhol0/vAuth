@@ -15,11 +15,10 @@
 #include <system_error>
 #include <termios.h>
 #include <unistd.h>
-#include <utility>
 
 namespace {
 
-constexpr std::size_t MAX_PASSWORD_SIZE = 1024;
+constexpr std::size_t MAX_SECRET_SIZE = 1024;
 
 class UniqueFd {
 public:
@@ -79,13 +78,13 @@ public:
 
     [[nodiscard]] std::string_view read() {
         if(!std::cin.getline(input_.data(), input_.size()))
-            throw std::runtime_error("Unable to read password");
+            throw std::runtime_error("Unable to read secret");
         const std::streamsize count = std::cin.gcount();
         if(count <= 0)
-            throw std::runtime_error("Unable to read password");
+            throw std::runtime_error("Unable to read secret");
         const std::size_t size = static_cast<std::size_t>(count - 1);
-        if(size > MAX_PASSWORD_SIZE)
-            throw std::runtime_error("Password is too long");
+        if(size > MAX_SECRET_SIZE)
+            throw std::runtime_error("Secret is too long");
         if(!restore())
             throw std::runtime_error("Unable to restore terminal echo");
         std::fputc('\n', stderr);
@@ -102,7 +101,7 @@ private:
         return true;
     }
 
-    std::array<char, MAX_PASSWORD_SIZE + 2> input_{};
+    std::array<char, MAX_SECRET_SIZE + 2> input_{};
     termios original_{};
     bool active_ = false;
 };
@@ -135,13 +134,13 @@ std::string display_message(
         return "User presence denied" + target;
     if(state == "verification_started")
         return "User verification started" + target;
-    if(state == "fingerprint_required")
-        return "Touch the fingerprint reader" + target;
-    if(state == "fingerprint_failed")
-        return "Fingerprint was not recognized" + target;
-    if(state == "password_required")
-        return "Password is required" + target;
-    if(state == "verification_succeeded")
+	if(state == "verification_information")
+		return "User verification information" + target;
+	if(state == "verification_error")
+		return "User verification needs attention" + target;
+	if(state == "secret_required")
+		return "A verification secret is required" + target;
+	if(state == "verification_succeeded")
         return "User verification succeeded" + target;
     if(state == "verification_failed")
         return "User verification failed" + target;
@@ -175,32 +174,33 @@ void respond_to_presence(
     ).withArguments(generation, request_id, approved);
 }
 
-void submit_password(
+void submit_secret(
     sdbus::IProxy& proxy,
     uint64_t generation,
-    uint64_t request_id
+    uint64_t request_id,
+    uint64_t prompt_id
 ) {
-    std::cout << "Password: " << std::flush;
+    std::cout << "Secret: " << std::flush;
     HiddenInput input;
-    const std::string_view password = input.read();
+    const std::string_view secret = input.read();
 
     std::array<int, 2> descriptors{};
     if(pipe2(descriptors.data(), O_CLOEXEC) != 0) {
         throw std::system_error(
             errno,
             std::generic_category(),
-            "create password pipe"
+            "create secret pipe"
         );
     }
     UniqueFd read_end(descriptors[0]);
     UniqueFd write_end(descriptors[1]);
 
     std::size_t written = 0;
-    while(written < password.size()) {
+    while(written < secret.size()) {
         const ssize_t count = write(
             write_end.get(),
-            password.data() + written,
-            password.size() - written
+            secret.data() + written,
+            secret.size() - written
         );
         if(count > 0) {
             written += static_cast<std::size_t>(count);
@@ -211,18 +211,19 @@ void submit_password(
         throw std::system_error(
             count < 0 ? errno : EIO,
             std::generic_category(),
-            "write password pipe"
+            "write secret pipe"
         );
     }
     write_end.reset();
 
     proxy.callMethod(
-        std::string(vauth::dbus::SUBMIT_PASSWORD_METHOD)
+        std::string(vauth::dbus::SUBMIT_SECRET_METHOD)
     ).onInterface(
         std::string(vauth::dbus::INTERFACE_NAME)
     ).withArguments(
         generation,
         request_id,
+        prompt_id,
         sdbus::UnixFd{read_end.get()}
     );
 }
@@ -247,9 +248,11 @@ int main() {
             [&generation, proxy = proxy.get()](
                 uint64_t signal_generation,
                 uint64_t request_id,
+                uint64_t prompt_id,
                 const std::string& state,
                 const std::string& operation,
-                const std::string& relying_party_id
+                const std::string& relying_party_id,
+                const std::string& message
             ) {
                 if(signal_generation != generation)
                     return;
@@ -261,6 +264,8 @@ int main() {
                               operation,
                               relying_party_id
                           ) << '\n';
+                if(!message.empty())
+                    std::cout << message << '\n';
                 if(state == "presence_required") {
                     try {
                         respond_to_presence(
@@ -272,9 +277,14 @@ int main() {
                         std::cerr << "Presence response failed: "
                                   << error.what() << '\n';
                     }
-                } else if(state == "password_required") {
-                    try {
-                        submit_password(*proxy, generation, request_id);
+				} else if(state == "secret_required") {
+					try {
+                        submit_secret(
+                            *proxy,
+                            generation,
+                            request_id,
+                            prompt_id
+                        );
                     } catch(const std::exception& error) {
                         std::cerr << "Password submission failed: "
                                   << error.what() << '\n';
@@ -287,7 +297,7 @@ int main() {
                         } catch(...) {
                         }
                     }
-                }
+				}
             },
             sdbus::return_slot
         );

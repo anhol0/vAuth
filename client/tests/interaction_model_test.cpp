@@ -2,6 +2,8 @@
 #include "test_runner.hpp"
 
 #include <iostream>
+#include <string>
+#include <utility>
 
 namespace {
 
@@ -16,23 +18,37 @@ namespace {
 vauth::client::InteractionEvent event(
     vauth::client::InteractionState state,
     uint64_t generation = 7,
-    uint64_t request_id = 42
+    uint64_t request_id = 42,
+    uint64_t prompt_id = 0,
+    std::string message = {}
 ) {
     return {
         .generation = generation,
         .requestId = request_id,
+        .promptId = prompt_id,
         .state = state,
         .operation = "make_credential",
-        .relyingPartyId = "example.com"
+        .relyingPartyId = "example.com",
+        .message = std::move(message)
     };
 }
 
 bool test_state_parser_is_strict() {
     using vauth::client::InteractionState;
     CHECK(
-        vauth::client::parse_interaction_state("password_required") ==
-        InteractionState::password_required
+        vauth::client::parse_interaction_state("verification_information") ==
+        InteractionState::verification_information
     );
+    CHECK(
+        vauth::client::parse_interaction_state("verification_error") ==
+        InteractionState::verification_error
+    );
+    CHECK(
+        vauth::client::parse_interaction_state("secret_required") ==
+        InteractionState::secret_required
+    );
+    CHECK(!vauth::client::parse_interaction_state("fingerprint_required"));
+    CHECK(!vauth::client::parse_interaction_state("password_required"));
     CHECK(!vauth::client::parse_interaction_state("password-required"));
     CHECK(!vauth::client::parse_interaction_state(""));
     return true;
@@ -46,7 +62,13 @@ bool test_tracker_rejects_stale_and_foreign_events() {
     CHECK(!tracker.accept(event(InteractionState::presence_required, 7, 0)));
     CHECK(tracker.accept(event(InteractionState::presence_required)));
     CHECK(tracker.is_active(42));
-    CHECK(!tracker.accept(event(InteractionState::password_required, 7, 43)));
+    CHECK(!tracker.accept(event(
+        InteractionState::secret_required,
+        7,
+        43,
+        1,
+        "Password:"
+    )));
     CHECK(tracker.accept(event(InteractionState::presence_denied)));
     CHECK(!tracker.is_active(42));
     CHECK(!tracker.accept(event(InteractionState::presence_approved)));
@@ -58,15 +80,85 @@ bool test_tracker_accepts_verification_sequence() {
     vauth::client::InteractionTracker tracker(7);
 
     CHECK(tracker.accept(event(InteractionState::verification_started)));
-    CHECK(tracker.accept(event(InteractionState::fingerprint_required)));
-    CHECK(tracker.accept(event(InteractionState::fingerprint_failed)));
-    CHECK(tracker.accept(event(InteractionState::password_required)));
+    CHECK(tracker.accept(event(
+        InteractionState::verification_information,
+        7,
+        42,
+        0,
+        "Touch the security device"
+    )));
+    CHECK(tracker.accept(event(
+        InteractionState::verification_error,
+        7,
+        42,
+        0,
+        "No match; try again"
+    )));
+    CHECK(tracker.accept(event(
+        InteractionState::secret_required,
+        7,
+        42,
+        11,
+        "Password:"
+    )));
+    CHECK(tracker.accept(event(
+        InteractionState::verification_information,
+        7,
+        42,
+        0,
+        "Checking the response"
+    )));
+    CHECK(tracker.accept(event(
+        InteractionState::secret_required,
+        7,
+        42,
+        12,
+        "One-time code:"
+    )));
     CHECK(tracker.accept(event(InteractionState::verification_succeeded)));
     CHECK(!tracker.is_active(42));
     return true;
 }
 
-bool test_ui_model_maps_presence_and_password() {
+bool test_tracker_validates_prompt_ids() {
+    using vauth::client::InteractionState;
+    vauth::client::InteractionTracker tracker(7);
+
+    CHECK(tracker.accept(event(InteractionState::verification_started)));
+    CHECK(!tracker.accept(event(
+        InteractionState::secret_required,
+        7,
+        42,
+        0,
+        "Password:"
+    )));
+    CHECK(tracker.accept(event(
+        InteractionState::secret_required,
+        7,
+        42,
+        19,
+        "Password:"
+    )));
+    CHECK(!tracker.accept(event(
+        InteractionState::verification_information,
+        7,
+        42,
+        19,
+        "Checking"
+    )));
+    CHECK(tracker.is_active(42));
+    CHECK(tracker.accept(event(
+        InteractionState::verification_information,
+        7,
+        42,
+        0,
+        "Checking"
+    )));
+    return true;
+}
+
+bool test_ui_model_maps_presence_and_secret() {
+    using vauth::client::AnimationKind;
     using vauth::client::InteractionState;
     using vauth::client::ViewKind;
     vauth::client::UiModel model;
@@ -79,11 +171,51 @@ bool test_ui_model_maps_presence_and_password() {
     CHECK(presence.relyingPartyId == "example.com");
     CHECK(!presence.terminal);
 
-    const auto password = model.apply(
-        event(InteractionState::password_required)
+    const auto secret = model.apply(
+        event(
+            InteractionState::secret_required,
+            7,
+            42,
+            9,
+            "Smart-card PIN:"
+        )
     );
-    CHECK(password.view == ViewKind::password);
-    CHECK(!password.terminal);
+    CHECK(secret.view == ViewKind::secret);
+    CHECK(secret.animation == AnimationKind::waiting);
+    CHECK(secret.message == "Smart-card PIN:");
+    CHECK(!secret.terminal);
+    return true;
+}
+
+bool test_ui_model_maps_generic_verification_messages() {
+    using vauth::client::AnimationKind;
+    using vauth::client::InteractionState;
+    using vauth::client::ViewKind;
+    vauth::client::UiModel model;
+
+    const auto information = model.apply(event(
+        InteractionState::verification_information,
+        7,
+        42,
+        0,
+        "Touch the security device"
+    ));
+    CHECK(information.view == ViewKind::verification);
+    CHECK(information.animation == AnimationKind::waiting);
+    CHECK(information.message == "Touch the security device");
+    CHECK(!information.terminal);
+
+    const auto error = model.apply(event(
+        InteractionState::verification_error,
+        7,
+        42,
+        0,
+        "No match; try again"
+    ));
+    CHECK(error.view == ViewKind::verification);
+    CHECK(error.animation == AnimationKind::failure);
+    CHECK(error.message == "No match; try again");
+    CHECK(!error.terminal);
     return true;
 }
 
@@ -94,12 +226,18 @@ bool test_ui_model_maps_terminal_states() {
     vauth::client::UiModel model;
 
     static_cast<void>(model.apply(
-        event(InteractionState::fingerprint_required)
+        event(
+            InteractionState::verification_information,
+            7,
+            42,
+            0,
+            "Touch the security device"
+        )
     ));
     const auto success = model.apply(
         event(InteractionState::verification_succeeded)
     );
-    CHECK(success.view == ViewKind::fingerprint);
+    CHECK(success.view == ViewKind::verification);
     CHECK(success.animation == AnimationKind::success);
     CHECK(success.terminal);
 
@@ -110,7 +248,7 @@ bool test_ui_model_maps_terminal_states() {
     return true;
 }
 
-bool test_password_fallback_failure_uses_failure_animation() {
+bool test_secret_failure_uses_failure_animation() {
     using vauth::client::AnimationKind;
     using vauth::client::InteractionState;
     using vauth::client::ViewKind;
@@ -120,13 +258,19 @@ bool test_password_fallback_failure_uses_failure_animation() {
         event(InteractionState::verification_started)
     ));
     static_cast<void>(model.apply(
-        event(InteractionState::password_required)
+        event(
+            InteractionState::secret_required,
+            7,
+            42,
+            3,
+            "Password:"
+        )
     ));
     const auto failure = model.apply(
         event(InteractionState::verification_failed)
     );
 
-    CHECK(failure.view == ViewKind::fingerprint);
+    CHECK(failure.view == ViewKind::verification);
     CHECK(failure.animation == AnimationKind::failure);
     CHECK(failure.title == "Verification failed");
     CHECK(failure.terminal);
@@ -147,16 +291,24 @@ int main() {
         test_tracker_accepts_verification_sequence
     );
     runner.run(
-        "UI model maps presence and password",
-        test_ui_model_maps_presence_and_password
+        "tracker validates prompt IDs",
+        test_tracker_validates_prompt_ids
+    );
+    runner.run(
+        "UI model maps presence and secret",
+        test_ui_model_maps_presence_and_secret
+    );
+    runner.run(
+        "UI model maps generic verification messages",
+        test_ui_model_maps_generic_verification_messages
     );
     runner.run(
         "UI model maps terminal states",
         test_ui_model_maps_terminal_states
     );
     runner.run(
-        "password fallback failure uses failure animation",
-        test_password_fallback_failure_uses_failure_animation
+        "secret failure uses failure animation",
+        test_secret_failure_uses_failure_animation
     );
     return runner.finish();
 }

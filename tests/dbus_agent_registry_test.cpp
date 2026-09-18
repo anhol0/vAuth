@@ -3,6 +3,7 @@
 #include "dbus/secret_pipe.hpp"
 #include "test_runner.hpp"
 #include "uv/src/user_interaction.hpp"
+#include "uv/src/verifier_protocol.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -208,13 +209,18 @@ bool test_state_names() {
     );
     CHECK(
         user_interaction_state_name(
-            UserInteractionState::fingerprint_failed
-        ) == "fingerprint_failed"
+            UserInteractionState::verification_information
+        ) == "verification_information"
     );
     CHECK(
         user_interaction_state_name(
-            UserInteractionState::password_required
-        ) == "password_required"
+            UserInteractionState::verification_error
+        ) == "verification_error"
+    );
+    CHECK(
+        user_interaction_state_name(
+            UserInteractionState::secret_required
+        ) == "secret_required"
     );
     return true;
 }
@@ -258,18 +264,17 @@ bool test_interaction_lifecycle() {
     CHECK(interactions.transition(
         user,
         first_id,
-        UserInteractionState::fingerprint_required
+        UserInteractionState::verification_information,
+        "Touch the security device"
     ));
+    CHECK(interactions.current()->message == "Touch the security device");
     CHECK(interactions.transition(
         user,
         first_id,
-        UserInteractionState::fingerprint_failed
+        UserInteractionState::verification_error,
+        "No match; try again"
     ));
-    CHECK(interactions.transition(
-        user,
-        first_id,
-        UserInteractionState::password_required
-    ));
+    CHECK(interactions.current()->message == "No match; try again");
     CHECK(interactions.transition(
         user,
         first_id,
@@ -320,7 +325,8 @@ bool test_interaction_transition_validation() {
         static_cast<void>(interactions.transition(
             user,
             request_id,
-            UserInteractionState::fingerprint_required
+            UserInteractionState::verification_information,
+            "Unexpected"
         ));
     } catch(const std::logic_error&) {
         invalid_rejected = true;
@@ -413,7 +419,8 @@ bool test_presence_responses_and_cancellation() {
     CHECK(!interactions.transition(
         user,
         verification_id,
-        UserInteractionState::fingerprint_required
+        UserInteractionState::verification_information,
+        "Touch the security device"
     ));
     CHECK(interactions.transition(
         user,
@@ -454,7 +461,7 @@ bool test_presence_responses_and_cancellation() {
     return true;
 }
 
-bool test_password_responses() {
+bool test_secret_responses_and_prompt_ids() {
     vauth::dbus::AgentRegistry agents;
     vauth::dbus::InteractionRegistry interactions;
     const UserContext user = agents.register_agent(peer());
@@ -471,28 +478,35 @@ bool test_password_responses() {
 
     bool early_response_rejected = false;
     try {
-        interactions.submit_password(
+        interactions.submit_secret(
             user,
             request_id,
+            1,
             sensitive("too-early")
         );
     } catch(const std::runtime_error&) {
         early_response_rejected = true;
     }
     CHECK(early_response_rejected);
-    CHECK(interactions.transition(
+    const auto first_prompt = interactions.transition(
         user,
         request_id,
-        UserInteractionState::password_required
-    ));
+        UserInteractionState::secret_required,
+        "Password:"
+    );
+    CHECK(first_prompt);
+    CHECK(first_prompt.promptId != 0);
+    CHECK(interactions.current()->promptId == first_prompt.promptId);
+    CHECK(interactions.current()->message == "Password:");
 
     UserContext wrong_user = user;
     wrong_user.uid = 1001;
     bool wrong_user_rejected = false;
     try {
-        interactions.submit_password(
+        interactions.submit_secret(
             wrong_user,
             request_id,
+            first_prompt.promptId,
             sensitive("foreign")
         );
     } catch(const std::runtime_error&) {
@@ -500,33 +514,98 @@ bool test_password_responses() {
     }
     CHECK(wrong_user_rejected);
 
-    std::jthread responder([&] {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        interactions.submit_password(user, request_id, sensitive("secret"));
-    });
-    std::stop_source stop;
-    auto response = interactions.wait_for_password(
+    bool wrong_prompt_rejected = false;
+    try {
+        interactions.submit_secret(
+            user,
+            request_id,
+            first_prompt.promptId + 1,
+            sensitive("wrong-prompt")
+        );
+    } catch(const std::runtime_error&) {
+        wrong_prompt_rejected = true;
+    }
+    CHECK(wrong_prompt_rejected);
+
+    interactions.submit_secret(
         user,
         request_id,
+        first_prompt.promptId,
+        sensitive("secret")
+    );
+    std::stop_source stop;
+    auto response = interactions.wait_for_secret(
+        user,
+        request_id,
+        first_prompt.promptId,
         stop.get_token(),
         std::chrono::seconds(1)
     );
-    responder.join();
-    CHECK(response.status == vauth::dbus::PasswordWaitStatus::provided);
+    CHECK(response.status == vauth::dbus::SecretWaitStatus::provided);
     const std::vector<uint8_t> expected{'s', 'e', 'c', 'r', 'e', 't'};
-    CHECK(std::ranges::equal(response.password.bytes(), expected));
+    CHECK(std::ranges::equal(response.secret.bytes(), expected));
 
     bool duplicate_rejected = false;
     try {
-        interactions.submit_password(
+        interactions.submit_secret(
             user,
             request_id,
+            first_prompt.promptId,
             sensitive("duplicate")
         );
     } catch(const std::runtime_error&) {
         duplicate_rejected = true;
     }
     CHECK(duplicate_rejected);
+
+    const auto second_prompt = interactions.transition(
+        user,
+        request_id,
+        UserInteractionState::secret_required,
+        "One-time code:"
+    );
+    CHECK(second_prompt);
+    CHECK(second_prompt.promptId != 0);
+    CHECK(second_prompt.promptId != first_prompt.promptId);
+
+    bool stale_prompt_rejected = false;
+    try {
+        interactions.submit_secret(
+            user,
+            request_id,
+            first_prompt.promptId,
+            sensitive("stale")
+        );
+    } catch(const std::runtime_error&) {
+        stale_prompt_rejected = true;
+    }
+    CHECK(stale_prompt_rejected);
+
+    interactions.submit_secret(
+        user,
+        request_id,
+        second_prompt.promptId,
+        sensitive("123456")
+    );
+    auto second_response = interactions.wait_for_secret(
+        user,
+        request_id,
+        second_prompt.promptId,
+        stop.get_token(),
+        std::chrono::seconds(1)
+    );
+    CHECK(
+        second_response.status ==
+        vauth::dbus::SecretWaitStatus::provided
+    );
+    const std::vector<uint8_t> expected_code{
+        '1', '2', '3', '4', '5', '6'
+    };
+    CHECK(std::ranges::equal(
+        second_response.secret.bytes(),
+        expected_code
+    ));
+
     CHECK(interactions.transition(
         user,
         request_id,
@@ -543,21 +622,24 @@ bool test_password_responses() {
         cancelled_id,
         UserInteractionState::verification_started
     ));
-    CHECK(interactions.transition(
+    const auto cancelled_prompt = interactions.transition(
         user,
         cancelled_id,
-        UserInteractionState::password_required
-    ));
+        UserInteractionState::secret_required,
+        "Password:"
+    );
+    CHECK(cancelled_prompt);
     interactions.request_cancel(user, cancelled_id);
-    auto cancelled = interactions.wait_for_password(
+    auto cancelled = interactions.wait_for_secret(
         user,
         cancelled_id,
+        cancelled_prompt.promptId,
         stop.get_token(),
         std::chrono::seconds(1)
     );
     CHECK(
         cancelled.status ==
-        vauth::dbus::PasswordWaitStatus::client_cancelled
+        vauth::dbus::SecretWaitStatus::client_cancelled
     );
     CHECK(interactions.transition(
         user,
@@ -567,14 +649,72 @@ bool test_password_responses() {
     return true;
 }
 
-bool test_password_pipe_validation() {
+bool test_verification_message_limits() {
+    vauth::dbus::AgentRegistry agents;
+    vauth::dbus::InteractionRegistry interactions;
+    const UserContext user = agents.register_agent(peer());
+    const uint64_t request_id = interactions.begin(
+        user,
+        UserInteractionOperation::get_assertion,
+        "example.com"
+    );
+    CHECK(interactions.transition(
+        user,
+        request_id,
+        UserInteractionState::verification_started
+    ));
+
+    const std::string maximum(
+        vauth::uv::MAX_VERIFICATION_TEXT_SIZE,
+        'm'
+    );
+    CHECK(interactions.transition(
+        user,
+        request_id,
+        UserInteractionState::verification_information,
+        maximum
+    ));
+    CHECK(interactions.current()->message == maximum);
+
+    bool oversized_rejected = false;
+    try {
+        static_cast<void>(interactions.transition(
+            user,
+            request_id,
+            UserInteractionState::verification_error,
+            std::string(
+                vauth::uv::MAX_VERIFICATION_TEXT_SIZE + 1,
+                'x'
+            )
+        ));
+    } catch(const std::invalid_argument&) {
+        oversized_rejected = true;
+    }
+    CHECK(oversized_rejected);
+
+    bool unexpected_text_rejected = false;
+    try {
+        static_cast<void>(interactions.transition(
+            user,
+            request_id,
+            UserInteractionState::verification_succeeded,
+            "Unexpected terminal text"
+        ));
+    } catch(const std::invalid_argument&) {
+        unexpected_text_rejected = true;
+    }
+    CHECK(unexpected_text_rejected);
+    return true;
+}
+
+bool test_secret_pipe_validation() {
     {
         auto [read_end, write_end] = make_pipe();
         const std::vector<uint8_t> expected{'s', 'e', 'c', 'r', 'e', 't'};
         write_all(write_end.get(), expected);
         write_end.reset();
-        auto password = vauth::dbus::read_secret_pipe(read_end.get());
-        CHECK(std::ranges::equal(password.bytes(), expected));
+        auto secret = vauth::dbus::read_secret_pipe(read_end.get());
+        CHECK(std::ranges::equal(secret.bytes(), expected));
     }
 
     {
@@ -595,19 +735,19 @@ bool test_password_pipe_validation() {
     {
         auto [read_end, write_end] = make_pipe();
         const std::vector<uint8_t> maximum(
-            vauth::uv::MAX_PASSWORD_SIZE,
+            vauth::uv::MAX_SECRET_SIZE,
             'x'
         );
         write_all(write_end.get(), maximum);
         write_end.reset();
-        auto password = vauth::dbus::read_secret_pipe(read_end.get());
-        CHECK(password.size() == vauth::uv::MAX_PASSWORD_SIZE);
+        auto secret = vauth::dbus::read_secret_pipe(read_end.get());
+        CHECK(secret.size() == vauth::uv::MAX_SECRET_SIZE);
     }
 
     {
         auto [read_end, write_end] = make_pipe();
         const std::vector<uint8_t> oversized(
-            vauth::uv::MAX_PASSWORD_SIZE + 1,
+            vauth::uv::MAX_SECRET_SIZE + 1,
             'x'
         );
         write_all(write_end.get(), oversized);
@@ -668,10 +808,17 @@ int main() {
         "test_presence_responses_and_cancellation",
         test_presence_responses_and_cancellation
     );
-    runner.run("test_password_responses", test_password_responses);
     runner.run(
-        "test_password_pipe_validation",
-        test_password_pipe_validation
+        "test_secret_responses_and_prompt_ids",
+        test_secret_responses_and_prompt_ids
+    );
+    runner.run(
+        "test_verification_message_limits",
+        test_verification_message_limits
+    );
+    runner.run(
+        "test_secret_pipe_validation",
+        test_secret_pipe_validation
     );
     return runner.finish();
 }

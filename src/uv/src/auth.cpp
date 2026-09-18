@@ -1,13 +1,11 @@
 #include "auth.hpp"
 
 #include "auth_handler.hpp"
-#include "auth_handler_status.hpp"
 #include "cancellable_process.hpp"
 #include "cancellation.hpp"
 #include "keepalive.hpp"
 
 #include <chrono>
-#include <security/_pam_types.h>
 #include <string>
 #include <unistd.h>
 #include <utility>
@@ -16,13 +14,14 @@ namespace {
 
 constexpr auto USER_ACTION_TIMEOUT = std::chrono::seconds(30);
 
-void publish_state(
+uint64_t publish_state(
     UserInteractionChannel& channel,
     const UserContext& user,
     const UserInteractionRequest& request,
-    UserInteractionState state
+    UserInteractionState state,
+    std::string_view message = {}
 ) {
-    channel.publish_state(user, request, state);
+    return channel.publish_state(user, request, state, message);
 }
 
 bool context_is_still_current(
@@ -62,7 +61,7 @@ private:
     UserInteractionRequest request_;
 };
 
-int authenticate_user(
+vauth::uv::VerificationResult authenticate_user(
     const std::string& username,
     const std::string& process_name,
     const std::string& confdir,
@@ -72,27 +71,42 @@ int authenticate_user(
     const UserContext& user,
     const UserInteractionRequest& request
 ) {
+    if(!user.session)
+        throw UserInteractionUnavailable{};
     UserActionKeepaliveGuard waiting_for_user(keepalive);
     const auto deadline = std::chrono::steady_clock::now() +
         USER_ACTION_TIMEOUT;
-    auto password_callback = [
+    auto secret_callback = [
         &interaction_channel,
         &user,
         &request,
         stop,
         deadline
-    ] {
+    ](const vauth::uv::SecretRequired& required) {
         const auto now = std::chrono::steady_clock::now();
         if(now >= deadline)
             throw UserActionTimedOut{};
-        return interaction_channel.wait_for_password(
+        const uint64_t prompt_id = publish_state(
+            interaction_channel,
             user,
             request,
+            UserInteractionState::secret_required,
+            required.prompt
+        );
+        if(prompt_id == 0) {
+            if(interaction_channel.cancellation_requested(user, request))
+                throw UserInteractionCancelled{};
+            throw UserInteractionUnavailable{};
+        }
+        return interaction_channel.wait_for_secret(
+            user,
+            request,
+            prompt_id,
             stop,
             deadline - now
         );
     };
-    const int status = vauth::uv::run_cancellable_program(
+    return vauth::uv::run_cancellable_verifier_program(
         "/proc/self/exe",
         {
             std::string(VAUTH_AUTH_HANDLER_COMMAND),
@@ -101,44 +115,32 @@ int authenticate_user(
             confdir,
             std::to_string(getpid())
         },
+        vauth::uv::StartVerification{
+            .targetUid = user.uid,
+            .sessionId = user.session->sessionId
+        },
         stop,
         USER_ACTION_TIMEOUT,
-        [&interaction_channel, &user, &request](uint8_t raw_status) {
-            switch(static_cast<vauth::uv::AuthHandlerStatus>(raw_status)) {
-                case vauth::uv::AuthHandlerStatus::fingerprint_required:
-                    publish_state(
-                        interaction_channel,
-                        user,
-                        request,
-                        UserInteractionState::fingerprint_required
-                    );
-                    break;
-                case vauth::uv::AuthHandlerStatus::fingerprint_failed:
-                    publish_state(
-                        interaction_channel,
-                        user,
-                        request,
-                        UserInteractionState::fingerprint_failed
-                    );
-                    break;
-                case vauth::uv::AuthHandlerStatus::password_required:
-                    publish_state(
-                        interaction_channel,
-                        user,
-                        request,
-                        UserInteractionState::password_required
-                    );
-                    break;
-            }
+        [&interaction_channel, &user, &request](
+            const vauth::uv::VerificationStatus& status
+        ) {
+            const auto state =
+                status.kind == vauth::uv::VerificationStatusKind::information
+                    ? UserInteractionState::verification_information
+                    : UserInteractionState::verification_error;
+            static_cast<void>(publish_state(
+                interaction_channel,
+                user,
+                request,
+                state,
+                status.message
+            ));
         },
+        secret_callback,
         [&interaction_channel, &user, &request] {
             return interaction_channel.cancellation_requested(user, request);
-        },
-        password_callback
+        }
     );
-    if(status < PAM_SUCCESS || status > PAM_INCOMPLETE)
-        return PAM_SYSTEM_ERR;
-    return status;
 }
 
 }
@@ -253,7 +255,8 @@ UserInteractionResult PamUserInteraction::request_verification(
             interactionChannel_,
             user,
             active_request
-        ) == PAM_SUCCESS && context_is_still_current(contextProvider_, user);
+        ) == vauth::uv::VerificationResult::success &&
+            context_is_still_current(contextProvider_, user);
         publish_state(
             interactionChannel_,
             user,

@@ -28,7 +28,7 @@ namespace {
 
 constexpr float ANIMATION_LOGICAL_WIDTH = 145.0F;
 constexpr float ANIMATION_LOGICAL_HEIGHT = 145.0F;
-constexpr std::size_t MAX_PASSWORD_SIZE = 1024;
+constexpr std::size_t MAX_SECRET_SIZE = 1024;
 constexpr std::size_t MAX_STARTUP_EVENTS = 32;
 
 struct StatusAnimations {
@@ -55,6 +55,7 @@ struct UiRuntime {
     slint::Timer renderTimer;
     std::function<void()> renderTick;
     uint64_t activeRequestId = 0;
+    uint64_t activePromptId = 0;
     uint64_t presentationRevision = 0;
 };
 
@@ -106,10 +107,10 @@ std::string_view view_name(vauth::client::ViewKind view) noexcept {
     switch(view) {
         case vauth::client::ViewKind::presence:
             return "presence";
-        case vauth::client::ViewKind::fingerprint:
-            return "fingerprint";
-        case vauth::client::ViewKind::password:
-            return "password";
+        case vauth::client::ViewKind::verification:
+            return "verification";
+        case vauth::client::ViewKind::secret:
+            return "secret";
         case vauth::client::ViewKind::status:
             return "status";
     }
@@ -144,6 +145,7 @@ void show_event(
     const auto presentation = runtime->model.apply(event);
     const uint64_t revision = ++runtime->presentationRevision;
     runtime->activeRequestId = presentation.terminal ? 0 : event.requestId;
+    runtime->activePromptId = presentation.terminal ? 0 : event.promptId;
 
     runtime->ui->set_view(slint::SharedString(view_name(presentation.view)));
     runtime->ui->set_heading(slint::SharedString(presentation.title));
@@ -160,7 +162,7 @@ void show_event(
             runtime->ui->get_animation_revision() + 1
         );
     }
-    if(presentation.view == vauth::client::ViewKind::fingerprint) {
+    if(presentation.view == vauth::client::ViewKind::verification) {
         if(!runtime->renderTimer.running()) {
             auto* runtime_pointer = runtime.get();
             runtime->renderTimer.start(
@@ -199,6 +201,7 @@ void report_ui_error(
 ) {
     ++runtime->presentationRevision;
     runtime->activeRequestId = 0;
+    runtime->activePromptId = 0;
     runtime->ui->set_view("status");
     runtime->ui->set_heading("Interaction failed");
     runtime->ui->set_message(slint::SharedString(message));
@@ -308,19 +311,21 @@ int main() {
                 report_ui_error(runtime, error.what());
             }
         });
-        runtime->ui->on_submit_password(
-            [runtime, agent_ptr](slint::SharedString password) {
+        runtime->ui->on_submit_secret(
+            [runtime, agent_ptr](slint::SharedString submitted) {
                 try {
-                    runtime->ui->set_password_text("");
-                    const std::string_view text(password.data());
-                    if(text.size() > MAX_PASSWORD_SIZE)
-                        throw std::runtime_error("Password is too long");
+                    runtime->ui->set_secret_text("");
+                    const std::string_view text(submitted.data());
+                    if(text.size() > MAX_SECRET_SIZE)
+                        throw std::runtime_error("Secret is too long");
                     vauth::uv::SensitiveBytes secret(text.size());
                     std::ranges::copy(text, secret.writable_bytes().begin());
-                    agent_ptr->submit_password(
+                    agent_ptr->submit_secret(
                         runtime->activeRequestId,
+                        runtime->activePromptId,
                         secret.bytes()
                     );
+                    runtime->activePromptId = 0;
                     runtime->ui->set_interaction_active(false);
                 } catch(const std::exception& error) {
                     cancel_and_report(runtime, *agent_ptr, error.what());
@@ -335,6 +340,7 @@ int main() {
                 } catch(...) {
                 }
                 runtime->activeRequestId = 0;
+                runtime->activePromptId = 0;
                 runtime->ui->set_interaction_active(false);
             }
             return slint::CloseRequestResponse::HideWindow;
