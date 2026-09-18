@@ -1,6 +1,5 @@
 #pragma once
 
-#include "auth_handler_status.hpp"
 #include "sensitive_bytes.hpp"
 
 #include <cstddef>
@@ -15,8 +14,10 @@ namespace vauth::uv {
 inline constexpr uint8_t VERIFIER_PROTOCOL_VERSION = 1;
 inline constexpr std::size_t VERIFIER_PROTOCOL_HEADER_SIZE = 2;
 inline constexpr std::size_t MAX_SESSION_ID_SIZE = 255;
+inline constexpr std::size_t MAX_VERIFICATION_SECRET_SIZE =
+    MAX_PASSWORD_SIZE;
 inline constexpr std::size_t MAX_VERIFIER_PACKET_SIZE =
-    VERIFIER_PROTOCOL_HEADER_SIZE + MAX_PASSWORD_SIZE;
+    VERIFIER_PROTOCOL_HEADER_SIZE + MAX_VERIFICATION_SECRET_SIZE;
 
 // The verifier protocol is carried by one SOCK_SEQPACKET connection. Each
 // encoded message occupies exactly one packet, including the fixed header.
@@ -27,18 +28,27 @@ struct StartVerification {
     bool operator==(const StartVerification&) const = default;
 };
 
-struct PasswordResponse {
-    SensitiveBytes password;
+struct SecretResponse {
+    SensitiveBytes secret;
 };
 
 struct CancelVerification {
     bool operator==(const CancelVerification&) const = default;
 };
 
+enum class VerificationProgress : uint8_t {
+    interaction_required = 1,
+    attempt_failed = 2
+};
+
 struct VerificationStatus {
-    AuthHandlerStatus status;
+    VerificationProgress progress;
 
     bool operator==(const VerificationStatus&) const = default;
+};
+
+struct SecretRequired {
+    bool operator==(const SecretRequired&) const = default;
 };
 
 enum class VerificationResult : uint8_t {
@@ -55,9 +65,10 @@ struct VerificationComplete {
 
 using VerifierMessage = std::variant<
     StartVerification,
-    PasswordResponse,
+    SecretResponse,
     CancelVerification,
     VerificationStatus,
+    SecretRequired,
     VerificationComplete
 >;
 

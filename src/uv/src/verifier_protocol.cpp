@@ -10,10 +10,11 @@ namespace {
 
 enum class MessageType : uint8_t {
     start = 1,
-    password = 2,
+    secret_response = 2,
     cancel = 3,
     status = 4,
-    complete = 5
+    secret_required = 5,
+    complete = 6
 };
 
 template<typename... Functions>
@@ -46,14 +47,14 @@ void validate_session_id(std::span<const uint8_t> session) {
         invalid("session ID contains an embedded NUL");
 }
 
-void validate_password(std::span<const uint8_t> password) {
-    if(password.size() > MAX_PASSWORD_SIZE)
-        invalid("password exceeds the verifier protocol limit");
+void validate_secret(std::span<const uint8_t> secret) {
+    if(secret.size() > MAX_VERIFICATION_SECRET_SIZE)
+        invalid("secret exceeds the verifier protocol limit");
     if(
-        std::find(password.begin(), password.end(), uint8_t{0}) !=
-        password.end()
+        std::find(secret.begin(), secret.end(), uint8_t{0}) !=
+        secret.end()
     ) {
-        invalid("password contains an embedded NUL");
+        invalid("secret contains an embedded NUL");
     }
 }
 
@@ -102,15 +103,15 @@ SensitiveBytes encode_start(const StartVerification& start) {
     return packet;
 }
 
-SensitiveBytes encode_password(const PasswordResponse& response) {
-    validate_password(response.password.bytes());
+SensitiveBytes encode_secret(const SecretResponse& response) {
+    validate_secret(response.secret.bytes());
     SensitiveBytes packet(
-        VERIFIER_PROTOCOL_HEADER_SIZE + response.password.size()
+        VERIFIER_PROTOCOL_HEADER_SIZE + response.secret.size()
     );
-    set_header(packet, MessageType::password);
+    set_header(packet, MessageType::secret_response);
     std::copy(
-        response.password.bytes().begin(),
-        response.password.bytes().end(),
+        response.secret.bytes().begin(),
+        response.secret.bytes().end(),
         packet.writable_bytes().begin() + VERIFIER_PROTOCOL_HEADER_SIZE
     );
     return packet;
@@ -129,11 +130,10 @@ SensitiveBytes encode_byte(MessageType type, uint8_t value) {
     return packet;
 }
 
-bool is_valid(AuthHandlerStatus status) {
-    switch(status) {
-        case AuthHandlerStatus::fingerprint_required:
-        case AuthHandlerStatus::fingerprint_failed:
-        case AuthHandlerStatus::password_required:
+bool is_valid(VerificationProgress progress) {
+    switch(progress) {
+        case VerificationProgress::interaction_required:
+        case VerificationProgress::attempt_failed:
             return true;
     }
     return false;
@@ -156,19 +156,22 @@ SensitiveBytes encode_verifier_message(const VerifierMessage& message) {
         [](const StartVerification& start) {
             return encode_start(start);
         },
-        [](const PasswordResponse& response) {
-            return encode_password(response);
+        [](const SecretResponse& response) {
+            return encode_secret(response);
         },
         [](const CancelVerification&) {
             return encode_empty(MessageType::cancel);
         },
         [](const VerificationStatus& status) {
-            if(!is_valid(status.status))
-                invalid("invalid authentication status");
+            if(!is_valid(status.progress))
+                invalid("invalid verification progress");
             return encode_byte(
                 MessageType::status,
-                static_cast<uint8_t>(status.status)
+                static_cast<uint8_t>(status.progress)
             );
+        },
+        [](const SecretRequired&) {
+            return encode_empty(MessageType::secret_required);
         },
         [](const VerificationComplete& complete) {
             if(!is_valid(complete.result))
@@ -215,15 +218,15 @@ VerifierMessage decode_verifier_message(std::span<const uint8_t> packet) {
                 .sessionId = std::move(session_id)
             };
         }
-        case MessageType::password: {
-            validate_password(payload);
-            SensitiveBytes password(payload.size());
+        case MessageType::secret_response: {
+            validate_secret(payload);
+            SensitiveBytes secret(payload.size());
             std::copy(
                 payload.begin(),
                 payload.end(),
-                password.writable_bytes().begin()
+                secret.writable_bytes().begin()
             );
-            return PasswordResponse{.password = std::move(password)};
+            return SecretResponse{.secret = std::move(secret)};
         }
         case MessageType::cancel:
             if(!payload.empty())
@@ -231,12 +234,17 @@ VerifierMessage decode_verifier_message(std::span<const uint8_t> packet) {
             return CancelVerification{};
         case MessageType::status: {
             if(payload.size() != 1)
-                invalid("invalid authentication-status packet length");
-            const auto status = static_cast<AuthHandlerStatus>(payload[0]);
-            if(!is_valid(status))
-                invalid("invalid authentication status");
-            return VerificationStatus{.status = status};
+                invalid("invalid verification-status packet length");
+            const auto progress =
+                static_cast<VerificationProgress>(payload[0]);
+            if(!is_valid(progress))
+                invalid("invalid verification progress");
+            return VerificationStatus{.progress = progress};
         }
+        case MessageType::secret_required:
+            if(!payload.empty())
+                invalid("secret-required packet contains a payload");
+            return SecretRequired{};
         case MessageType::complete: {
             if(payload.size() != 1)
                 invalid("invalid verification-result packet length");

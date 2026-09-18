@@ -92,9 +92,9 @@ bool test_start_request_exact_encoding_and_round_trip() {
     return true;
 }
 
-bool test_password_exact_encoding_and_round_trip() {
-    vauth::uv::VerifierMessage message = vauth::uv::PasswordResponse{
-        .password = sensitive_bytes({'s', 'e', 'c', 'r', 'e', 't'})
+bool test_secret_exact_encoding_and_round_trip() {
+    vauth::uv::VerifierMessage message = vauth::uv::SecretResponse{
+        .secret = sensitive_bytes({'s', 'e', 'c', 'r', 'e', 't'})
     };
     const std::vector<uint8_t> expected{
         0x01, 0x02,
@@ -104,28 +104,28 @@ bool test_password_exact_encoding_and_round_trip() {
     CHECK(bytes_equal(encoded.bytes(), expected));
 
     auto decoded = vauth::uv::decode_verifier_message(encoded.bytes());
-    CHECK(std::holds_alternative<vauth::uv::PasswordResponse>(decoded));
-    const auto& password =
-        std::get<vauth::uv::PasswordResponse>(decoded).password;
-    CHECK(password.size() == 6);
+    CHECK(std::holds_alternative<vauth::uv::SecretResponse>(decoded));
+    const auto& secret =
+        std::get<vauth::uv::SecretResponse>(decoded).secret;
+    CHECK(secret.size() == 6);
     CHECK(std::equal(
-        password.bytes().begin(),
-        password.bytes().end(),
+        secret.bytes().begin(),
+        secret.bytes().end(),
         expected.begin() + vauth::uv::VERIFIER_PROTOCOL_HEADER_SIZE
     ));
     return true;
 }
 
-bool test_empty_password_is_valid() {
-    vauth::uv::VerifierMessage message = vauth::uv::PasswordResponse{
-        .password = vauth::uv::SensitiveBytes{}
+bool test_empty_secret_is_valid() {
+    vauth::uv::VerifierMessage message = vauth::uv::SecretResponse{
+        .secret = vauth::uv::SensitiveBytes{}
     };
     const auto encoded = vauth::uv::encode_verifier_message(message);
     CHECK(encoded.size() == vauth::uv::VERIFIER_PROTOCOL_HEADER_SIZE);
 
     auto decoded = vauth::uv::decode_verifier_message(encoded.bytes());
-    CHECK(std::holds_alternative<vauth::uv::PasswordResponse>(decoded));
-    CHECK(std::get<vauth::uv::PasswordResponse>(decoded).password.size() == 0);
+    CHECK(std::holds_alternative<vauth::uv::SecretResponse>(decoded));
+    CHECK(std::get<vauth::uv::SecretResponse>(decoded).secret.size() == 0);
     return true;
 }
 
@@ -133,14 +133,12 @@ bool test_control_messages_exact_encoding_and_round_trip() {
     const std::array<vauth::uv::VerifierMessage, 7> messages{
         vauth::uv::CancelVerification{},
         vauth::uv::VerificationStatus{
-            vauth::uv::AuthHandlerStatus::fingerprint_required
+            vauth::uv::VerificationProgress::interaction_required
         },
         vauth::uv::VerificationStatus{
-            vauth::uv::AuthHandlerStatus::fingerprint_failed
+            vauth::uv::VerificationProgress::attempt_failed
         },
-        vauth::uv::VerificationStatus{
-            vauth::uv::AuthHandlerStatus::password_required
-        },
+        vauth::uv::SecretRequired{},
         vauth::uv::VerificationComplete{
             vauth::uv::VerificationResult::success
         },
@@ -155,10 +153,10 @@ bool test_control_messages_exact_encoding_and_round_trip() {
         std::vector<uint8_t>{0x01, 0x03},
         std::vector<uint8_t>{0x01, 0x04, 0x01},
         std::vector<uint8_t>{0x01, 0x04, 0x02},
-        std::vector<uint8_t>{0x01, 0x04, 0x03},
-        std::vector<uint8_t>{0x01, 0x05, 0x01},
-        std::vector<uint8_t>{0x01, 0x05, 0x02},
-        std::vector<uint8_t>{0x01, 0x05, 0x03}
+        std::vector<uint8_t>{0x01, 0x05},
+        std::vector<uint8_t>{0x01, 0x06, 0x01},
+        std::vector<uint8_t>{0x01, 0x06, 0x02},
+        std::vector<uint8_t>{0x01, 0x06, 0x03}
     };
 
     for(std::size_t index = 0; index < messages.size(); ++index) {
@@ -202,14 +200,16 @@ bool test_maximum_sized_fields_round_trip() {
         == vauth::uv::MAX_SESSION_ID_SIZE
     );
 
-    vauth::uv::SensitiveBytes password(vauth::uv::MAX_PASSWORD_SIZE);
+    vauth::uv::SensitiveBytes secret(
+        vauth::uv::MAX_VERIFICATION_SECRET_SIZE
+    );
     std::fill(
-        password.writable_bytes().begin(),
-        password.writable_bytes().end(),
+        secret.writable_bytes().begin(),
+        secret.writable_bytes().end(),
         static_cast<uint8_t>('p')
     );
-    vauth::uv::VerifierMessage response = vauth::uv::PasswordResponse{
-        .password = std::move(password)
+    vauth::uv::VerifierMessage response = vauth::uv::SecretResponse{
+        .secret = std::move(secret)
     };
     auto encoded_response = vauth::uv::encode_verifier_message(response);
     CHECK(encoded_response.size() == vauth::uv::MAX_VERIFIER_PACKET_SIZE);
@@ -217,8 +217,8 @@ bool test_maximum_sized_fields_round_trip() {
         encoded_response.bytes()
     );
     CHECK(
-        std::get<vauth::uv::PasswordResponse>(decoded_response).password.size()
-        == vauth::uv::MAX_PASSWORD_SIZE
+        std::get<vauth::uv::SecretResponse>(decoded_response).secret.size()
+        == vauth::uv::MAX_VERIFICATION_SECRET_SIZE
     );
     return true;
 }
@@ -273,25 +273,28 @@ bool test_invalid_start_requests_are_rejected() {
     return true;
 }
 
-bool test_invalid_passwords_are_rejected() {
+bool test_invalid_secrets_are_rejected() {
     CHECK(rejects_packet([] {
         const vauth::uv::VerifierMessage message =
-            vauth::uv::PasswordResponse{
-                .password = sensitive_bytes({'a', 0x00, 'b'})
+            vauth::uv::SecretResponse{
+                .secret = sensitive_bytes({'a', 0x00, 'b'})
             };
         static_cast<void>(vauth::uv::encode_verifier_message(message));
     }));
     CHECK(rejects_packet([] {
         const vauth::uv::VerifierMessage message =
-            vauth::uv::PasswordResponse{
-                .password = vauth::uv::SensitiveBytes(
-                    vauth::uv::MAX_PASSWORD_SIZE + 1
+            vauth::uv::SecretResponse{
+                .secret = vauth::uv::SensitiveBytes(
+                    vauth::uv::MAX_VERIFICATION_SECRET_SIZE + 1
                 )
             };
         static_cast<void>(vauth::uv::encode_verifier_message(message));
     }));
 
-    std::vector<uint8_t> oversized(vauth::uv::MAX_PASSWORD_SIZE + 1, 'p');
+    std::vector<uint8_t> oversized(
+        vauth::uv::MAX_VERIFICATION_SECRET_SIZE + 1,
+        'p'
+    );
     CHECK(rejects_packet([&] {
         static_cast<void>(vauth::uv::decode_verifier_message(packet(
             1, 2, oversized
@@ -351,18 +354,23 @@ bool test_invalid_control_payloads_are_rejected() {
     }));
     CHECK(rejects_packet([&] {
         static_cast<void>(vauth::uv::decode_verifier_message(packet(
+            1, 6, byte
+        )));
+    }));
+    CHECK(rejects_packet([&] {
+        static_cast<void>(vauth::uv::decode_verifier_message(packet(
             1, 4, empty
         )));
     }));
     CHECK(rejects_packet([&] {
         static_cast<void>(vauth::uv::decode_verifier_message(packet(
-            1, 5, empty
+            1, 6, empty
         )));
     }));
     CHECK(rejects_packet([] {
         const vauth::uv::VerifierMessage message =
             vauth::uv::VerificationStatus{
-                static_cast<vauth::uv::AuthHandlerStatus>(0xff)
+                static_cast<vauth::uv::VerificationProgress>(0xff)
             };
         static_cast<void>(vauth::uv::encode_verifier_message(message));
     }));
@@ -385,10 +393,10 @@ int main() {
         test_start_request_exact_encoding_and_round_trip
     );
     runner.run(
-        "password exact encoding and round trip",
-        test_password_exact_encoding_and_round_trip
+        "secret exact encoding and round trip",
+        test_secret_exact_encoding_and_round_trip
     );
-    runner.run("empty password is valid", test_empty_password_is_valid);
+    runner.run("empty secret is valid", test_empty_secret_is_valid);
     runner.run(
         "control messages exact encoding and round trip",
         test_control_messages_exact_encoding_and_round_trip
@@ -402,8 +410,8 @@ int main() {
         test_invalid_start_requests_are_rejected
     );
     runner.run(
-        "invalid passwords are rejected",
-        test_invalid_passwords_are_rejected
+        "invalid secrets are rejected",
+        test_invalid_secrets_are_rejected
     );
     runner.run(
         "malformed headers are rejected",
