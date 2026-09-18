@@ -58,6 +58,96 @@ void validate_secret(std::span<const uint8_t> secret) {
     }
 }
 
+bool is_continuation_byte(uint8_t value) noexcept {
+    return value >= 0x80 && value <= 0xbf;
+}
+
+void validate_display_text(
+    std::string_view text,
+    std::string_view field
+) {
+    if(text.size() > MAX_VERIFICATION_TEXT_SIZE)
+        invalid(std::string(field) + " exceeds the verifier protocol limit");
+
+    std::size_t index = 0;
+    while(index < text.size()) {
+        const auto first = static_cast<uint8_t>(text[index]);
+        if(first <= 0x7f) {
+            if(first < 0x20 || first == 0x7f)
+                invalid(std::string(field) + " contains a control character");
+            ++index;
+            continue;
+        }
+
+        if(first >= 0xc2 && first <= 0xdf) {
+            if(index + 1 >= text.size())
+                invalid(std::string(field) + " is not valid UTF-8");
+            const auto second = static_cast<uint8_t>(text[index + 1]);
+            if(!is_continuation_byte(second))
+                invalid(std::string(field) + " is not valid UTF-8");
+            if(first == 0xc2 && second <= 0x9f)
+                invalid(std::string(field) + " contains a control character");
+            index += 2;
+            continue;
+        }
+
+        if(first >= 0xe0 && first <= 0xef) {
+            if(index + 2 >= text.size())
+                invalid(std::string(field) + " is not valid UTF-8");
+            const auto second = static_cast<uint8_t>(text[index + 1]);
+            const auto third = static_cast<uint8_t>(text[index + 2]);
+            const bool valid_second =
+                (first == 0xe0 && second >= 0xa0 && second <= 0xbf) ||
+                (first >= 0xe1 && first <= 0xec &&
+                    is_continuation_byte(second)) ||
+                (first == 0xed && second >= 0x80 && second <= 0x9f) ||
+                (first >= 0xee && first <= 0xef &&
+                    is_continuation_byte(second));
+            if(!valid_second || !is_continuation_byte(third))
+                invalid(std::string(field) + " is not valid UTF-8");
+            index += 3;
+            continue;
+        }
+
+        if(first >= 0xf0 && first <= 0xf4) {
+            if(index + 3 >= text.size())
+                invalid(std::string(field) + " is not valid UTF-8");
+            const auto second = static_cast<uint8_t>(text[index + 1]);
+            const auto third = static_cast<uint8_t>(text[index + 2]);
+            const auto fourth = static_cast<uint8_t>(text[index + 3]);
+            const bool valid_second =
+                (first == 0xf0 && second >= 0x90 && second <= 0xbf) ||
+                (first >= 0xf1 && first <= 0xf3 &&
+                    is_continuation_byte(second)) ||
+                (first == 0xf4 && second >= 0x80 && second <= 0x8f);
+            if(
+                !valid_second ||
+                !is_continuation_byte(third) ||
+                !is_continuation_byte(fourth)
+            ) {
+                invalid(std::string(field) + " is not valid UTF-8");
+            }
+            index += 4;
+            continue;
+        }
+
+        invalid(std::string(field) + " is not valid UTF-8");
+    }
+}
+
+std::string decode_display_text(
+    std::span<const uint8_t> payload,
+    std::string_view field
+) {
+    if(payload.size() > MAX_VERIFICATION_TEXT_SIZE)
+        invalid(std::string(field) + " exceeds the verifier protocol limit");
+    std::string text(payload.size(), '\0');
+    if(!payload.empty())
+        std::memcpy(text.data(), payload.data(), payload.size());
+    validate_display_text(text, field);
+    return text;
+}
+
 void set_header(SensitiveBytes& packet, MessageType type) {
     auto bytes = packet.writable_bytes();
     bytes[0] = VERIFIER_PROTOCOL_VERSION;
@@ -130,10 +220,46 @@ SensitiveBytes encode_byte(MessageType type, uint8_t value) {
     return packet;
 }
 
-bool is_valid(VerificationProgress progress) {
-    switch(progress) {
-        case VerificationProgress::interaction_required:
-        case VerificationProgress::attempt_failed:
+SensitiveBytes encode_status(const VerificationStatus& status) {
+    validate_display_text(status.message, "verification status message");
+    SensitiveBytes packet(
+        VERIFIER_PROTOCOL_HEADER_SIZE + sizeof(uint8_t) +
+        status.message.size()
+    );
+    set_header(packet, MessageType::status);
+    auto bytes = packet.writable_bytes();
+    bytes[VERIFIER_PROTOCOL_HEADER_SIZE] =
+        static_cast<uint8_t>(status.kind);
+    if(!status.message.empty()) {
+        std::memcpy(
+            bytes.data() + VERIFIER_PROTOCOL_HEADER_SIZE + sizeof(uint8_t),
+            status.message.data(),
+            status.message.size()
+        );
+    }
+    return packet;
+}
+
+SensitiveBytes encode_secret_required(const SecretRequired& required) {
+    validate_display_text(required.prompt, "verification prompt");
+    SensitiveBytes packet(
+        VERIFIER_PROTOCOL_HEADER_SIZE + required.prompt.size()
+    );
+    set_header(packet, MessageType::secret_required);
+    if(!required.prompt.empty()) {
+        std::memcpy(
+            packet.writable_bytes().data() + VERIFIER_PROTOCOL_HEADER_SIZE,
+            required.prompt.data(),
+            required.prompt.size()
+        );
+    }
+    return packet;
+}
+
+bool is_valid(VerificationStatusKind kind) {
+    switch(kind) {
+        case VerificationStatusKind::information:
+        case VerificationStatusKind::error:
             return true;
     }
     return false;
@@ -163,15 +289,12 @@ SensitiveBytes encode_verifier_message(const VerifierMessage& message) {
             return encode_empty(MessageType::cancel);
         },
         [](const VerificationStatus& status) {
-            if(!is_valid(status.progress))
-                invalid("invalid verification progress");
-            return encode_byte(
-                MessageType::status,
-                static_cast<uint8_t>(status.progress)
-            );
+            if(!is_valid(status.kind))
+                invalid("invalid verification status kind");
+            return encode_status(status);
         },
-        [](const SecretRequired&) {
-            return encode_empty(MessageType::secret_required);
+        [](const SecretRequired& required) {
+            return encode_secret_required(required);
         },
         [](const VerificationComplete& complete) {
             if(!is_valid(complete.result))
@@ -233,18 +356,32 @@ VerifierMessage decode_verifier_message(std::span<const uint8_t> packet) {
                 invalid("cancel packet contains a payload");
             return CancelVerification{};
         case MessageType::status: {
-            if(payload.size() != 1)
+            if(
+                payload.empty() ||
+                payload.size() > sizeof(uint8_t) +
+                    MAX_VERIFICATION_TEXT_SIZE
+            ) {
                 invalid("invalid verification-status packet length");
-            const auto progress =
-                static_cast<VerificationProgress>(payload[0]);
-            if(!is_valid(progress))
-                invalid("invalid verification progress");
-            return VerificationStatus{.progress = progress};
+            }
+            const auto kind =
+                static_cast<VerificationStatusKind>(payload[0]);
+            if(!is_valid(kind))
+                invalid("invalid verification status kind");
+            return VerificationStatus{
+                .kind = kind,
+                .message = decode_display_text(
+                    payload.subspan(sizeof(uint8_t)),
+                    "verification status message"
+                )
+            };
         }
         case MessageType::secret_required:
-            if(!payload.empty())
-                invalid("secret-required packet contains a payload");
-            return SecretRequired{};
+            return SecretRequired{
+                .prompt = decode_display_text(
+                    payload,
+                    "verification prompt"
+                )
+            };
         case MessageType::complete: {
             if(payload.size() != 1)
                 invalid("invalid verification-result packet length");
