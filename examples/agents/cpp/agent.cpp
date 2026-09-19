@@ -29,9 +29,11 @@ constexpr char INTERFACE[] = "org.lamellix.vAuth.UserInteraction1";
 struct Event {
     uint64_t generation;
     uint64_t requestId;
+    uint64_t promptId;
     std::string state;
     std::string operation;
     std::string relyingPartyId;
+    std::string message;
 };
 
 class UniqueFd {
@@ -69,7 +71,7 @@ void write_all(int fd, std::span<const uint8_t> bytes) {
             throw std::system_error(
                 count < 0 ? errno : EIO,
                 std::generic_category(),
-                "write password pipe"
+                "write secret pipe"
             );
         }
     }
@@ -93,27 +95,27 @@ bool is_known(std::string_view state) {
     return
         is_start(state) ||
         is_terminal(state) ||
-        state == "fingerprint_required" ||
-        state == "fingerprint_failed" ||
-        state == "password_required";
+        state == "verification_information" ||
+        state == "verification_error" ||
+        state == "secret_required";
 }
 
-void clear_password(std::vector<uint8_t>& password) noexcept {
-    if(!password.empty())
-        explicit_bzero(password.data(), password.size());
-    password.clear();
+void clear_secret(std::vector<uint8_t>& secret) noexcept {
+    if(!secret.empty())
+        explicit_bzero(secret.data(), secret.size());
+    secret.clear();
 }
 
-class PasswordClearGuard {
+class SecretClearGuard {
 public:
-    explicit PasswordClearGuard(std::vector<uint8_t>& password) noexcept
-        : password_(password) {}
-    ~PasswordClearGuard() { clear_password(password_); }
-    PasswordClearGuard(const PasswordClearGuard&) = delete;
-    PasswordClearGuard& operator=(const PasswordClearGuard&) = delete;
+    explicit SecretClearGuard(std::vector<uint8_t>& secret) noexcept
+        : secret_(secret) {}
+    ~SecretClearGuard() { clear_secret(secret_); }
+    SecretClearGuard(const SecretClearGuard&) = delete;
+    SecretClearGuard& operator=(const SecretClearGuard&) = delete;
 
 private:
-    std::vector<uint8_t>& password_;
+    std::vector<uint8_t>& secret_;
 };
 
 class Agent {
@@ -131,17 +133,21 @@ public:
                 [this](
                     uint64_t generation,
                     uint64_t request_id,
+                    uint64_t prompt_id,
                     const std::string& state,
                     const std::string& operation,
-                    const std::string& relying_party_id
+                    const std::string& relying_party_id,
+                    const std::string& message
                 ) {
                     std::lock_guard lock(mutex_);
                     events_.push_back({
                         generation,
                         request_id,
+                        prompt_id,
                         state,
                         operation,
-                        relying_party_id
+                        relying_party_id,
+                        message
                     });
                     changed_.notify_one();
                 },
@@ -181,6 +187,12 @@ public:
             ) {
                 continue;
             }
+            if(
+                (event.state == "secret_required") !=
+                (event.promptId != 0)
+            ) {
+                continue;
+            }
             if(is_start(event.state)) {
                 if(activeRequest_ != 0 && activeRequest_ != event.requestId)
                     continue;
@@ -191,6 +203,8 @@ public:
 
             std::cout << event.state << ": " << event.operation
                       << " for RP " << event.relyingPartyId << '\n';
+            if(!event.message.empty())
+                std::cout << event.message << '\n';
 
             if(event.state == "presence_required") {
                 std::cout << "Approve? [y]es/[n]o/[c]ancel: " << std::flush;
@@ -203,9 +217,9 @@ public:
                         !answer.empty() && answer.front() == 'y';
                     respond_to_presence(event.requestId, approved);
                 }
-            } else if(event.state == "password_required") {
+            } else if(event.state == "secret_required") {
                 // A console string cannot be reliably erased. A real UI should
-                // call submit_password() with a protected mutable buffer.
+                // call submit_secret() with a protected mutable buffer.
                 cancel(event.requestId);
             }
 
@@ -214,16 +228,20 @@ public:
         }
     }
 
-    void submit_password(uint64_t request_id, std::vector<uint8_t>& password) {
-        PasswordClearGuard clearOnExit(password);
-        if(request_id == 0 || request_id != activeRequest_)
+    void submit_secret(
+        uint64_t request_id,
+        uint64_t prompt_id,
+        std::vector<uint8_t>& secret
+    ) {
+        SecretClearGuard clearOnExit(secret);
+        if(request_id == 0 || prompt_id == 0 || request_id != activeRequest_)
             throw std::runtime_error("interaction is not active");
         if(
-            password.size() > 1024 ||
-            std::ranges::find(password, uint8_t{0}) != password.end()
+            secret.size() > 1024 ||
+            std::ranges::find(secret, uint8_t{0}) != secret.end()
         ) {
             throw std::invalid_argument(
-                "password must be at most 1024 bytes without NUL"
+                "secret must be at most 1024 bytes without NUL"
             );
         }
 
@@ -233,13 +251,14 @@ public:
         UniqueFd readEnd(descriptors[0]);
         UniqueFd writeEnd(descriptors[1]);
 
-        write_all(writeEnd.get(), password);
+        write_all(writeEnd.get(), secret);
         writeEnd.reset();
-        proxy_->callMethod("SubmitPassword")
+        proxy_->callMethod("SubmitSecret")
             .onInterface(INTERFACE)
             .withArguments(
                 generation_,
                 request_id,
+                prompt_id,
                 sdbus::UnixFd{readEnd.get()}
             );
     }

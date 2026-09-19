@@ -28,17 +28,17 @@ var terminalStates = map[string]bool{
 }
 
 var knownStates = map[string]bool{
-	"presence_required":      true,
-	"presence_approved":      true,
-	"presence_denied":        true,
-	"verification_started":   true,
-	"fingerprint_required":   true,
-	"fingerprint_failed":     true,
-	"password_required":      true,
-	"verification_succeeded": true,
-	"verification_failed":    true,
-	"cancelled":              true,
-	"timed_out":              true,
+	"presence_required":        true,
+	"presence_approved":        true,
+	"presence_denied":          true,
+	"verification_started":     true,
+	"verification_information": true,
+	"verification_error":       true,
+	"secret_required":          true,
+	"verification_succeeded":   true,
+	"verification_failed":      true,
+	"cancelled":                true,
+	"timed_out":                true,
 }
 
 func main() {
@@ -75,16 +75,21 @@ func main() {
 	reader := bufio.NewReader(os.Stdin)
 	var activeRequest uint64
 	for signal := range signals {
-		if signal.Name != stateName || len(signal.Body) != 5 {
+		if signal.Name != stateName || len(signal.Body) != 7 {
 			continue
 		}
 		signalGeneration, ok1 := signal.Body[0].(uint64)
 		requestID, ok2 := signal.Body[1].(uint64)
-		state, ok3 := signal.Body[2].(string)
-		operation, ok4 := signal.Body[3].(string)
-		rpID, ok5 := signal.Body[4].(string)
-		if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 ||
+		promptID, ok3 := signal.Body[2].(uint64)
+		state, ok4 := signal.Body[3].(string)
+		operation, ok5 := signal.Body[4].(string)
+		rpID, ok6 := signal.Body[5].(string)
+		message, ok7 := signal.Body[6].(string)
+		if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || !ok6 || !ok7 ||
 			signalGeneration != generation || requestID == 0 || !knownStates[state] {
+			continue
+		}
+		if (state == "secret_required") != (promptID != 0) {
 			continue
 		}
 
@@ -98,6 +103,9 @@ func main() {
 		}
 
 		fmt.Printf("%s: %s for RP %s\n", state, operation, rpID)
+		if message != "" {
+			fmt.Println(message)
+		}
 		switch state {
 		case "presence_required":
 			fmt.Print("Approve? [y]es/[n]o/[c]ancel: ")
@@ -116,9 +124,9 @@ func main() {
 					strings.HasPrefix(answer, "y"),
 				).Err
 			}
-		case "password_required":
+		case "secret_required":
 			// Console strings cannot be reliably erased. A real UI should call
-			// submitPassword with a protected mutable byte slice.
+			// submitSecret with a protected mutable byte slice.
 			err = object.Call(
 				iface+".CancelInteraction", 0, generation, requestID,
 			).Err
@@ -133,17 +141,18 @@ func main() {
 	}
 }
 
-func submitPassword(
+func submitSecret(
 	object dbus.BusObject,
 	generation uint64,
 	requestID uint64,
-	password []byte,
+	promptID uint64,
+	secret []byte,
 ) (err error) {
 	defer func() {
-		clear(password)
+		clear(secret)
 	}()
-	if requestID == 0 || len(password) > 1024 || bytes.IndexByte(password, 0) >= 0 {
-		return errors.New("password must be at most 1024 bytes without NUL")
+	if requestID == 0 || promptID == 0 || len(secret) > 1024 || bytes.IndexByte(secret, 0) >= 0 {
+		return errors.New("secret must be at most 1024 bytes without NUL")
 	}
 
 	readEnd, writeEnd, err := os.Pipe()
@@ -153,16 +162,16 @@ func submitPassword(
 	defer readEnd.Close()
 
 	written := 0
-	for written < len(password) {
+	for written < len(secret) {
 		var count int
-		count, err = writeEnd.Write(password[written:])
+		count, err = writeEnd.Write(secret[written:])
 		if err != nil {
 			writeEnd.Close()
 			return err
 		}
 		if count == 0 {
 			writeEnd.Close()
-			return errors.New("password pipe made no write progress")
+			return errors.New("secret pipe made no write progress")
 		}
 		written += count
 	}
@@ -171,10 +180,11 @@ func submitPassword(
 	}
 
 	return object.Call(
-		iface+".SubmitPassword",
+		iface+".SubmitSecret",
 		0,
 		generation,
 		requestID,
+		promptID,
 		dbus.UnixFD(readEnd.Fd()),
 	).Err
 }

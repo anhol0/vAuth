@@ -9,5 +9,5 @@ cmake --build build
 ```
 
 Run it from an active local login session. It handles presence requests and
-cancels password requests. The `submit_password` method demonstrates Unix-file-
-descriptor transfer for integration with a real protected password widget.
+cancels secret requests. The `submit_secret` method demonstrates Unix-file-
+descriptor transfer for integration with a protected input widget.

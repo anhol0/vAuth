@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Minimal vAuth presence agent using dbus-next.
 
-This console example cancels password prompts. A graphical agent may call
-submit_password() with a mutable buffer populated by a protected password
-widget, then clear that widget and buffer immediately.
+This console example cancels secret prompts. A graphical agent may call
+submit_secret() with a mutable buffer populated by a protected input widget,
+then clear that widget and buffer immediately.
 """
 
 import asyncio
@@ -27,9 +27,9 @@ TERMINAL_STATES = {
     "timed_out",
 }
 KNOWN_STATES = START_STATES | TERMINAL_STATES | {
-    "fingerprint_required",
-    "fingerprint_failed",
-    "password_required",
+    "verification_information",
+    "verification_error",
+    "secret_required",
 }
 
 
@@ -57,13 +57,21 @@ class Agent:
         self,
         generation: int,
         request_id: int,
+        prompt_id: int,
         state: str,
         operation: str,
         relying_party_id: str,
+        message: str,
     ) -> None:
         asyncio.create_task(
             self.handle_state(
-                generation, request_id, state, operation, relying_party_id
+                generation,
+                request_id,
+                prompt_id,
+                state,
+                operation,
+                relying_party_id,
+                message,
             )
         )
 
@@ -71,15 +79,19 @@ class Agent:
         self,
         generation: int,
         request_id: int,
+        prompt_id: int,
         state: str,
         operation: str,
         relying_party_id: str,
+        message: str,
     ) -> None:
         if (
             generation != self.generation
             or request_id == 0
             or state not in KNOWN_STATES
         ):
+            return
+        if (state == "secret_required") != (prompt_id != 0):
             return
         if state in START_STATES:
             if self.active_request not in (None, request_id):
@@ -89,6 +101,8 @@ class Agent:
             return
 
         print(f"{state}: {operation} for RP {relying_party_id}")
+        if message:
+            print(message)
 
         if state == "presence_required":
             answer = await asyncio.to_thread(
@@ -107,37 +121,41 @@ class Agent:
                     )
             except Exception as error:
                 print(f"presence reply failed: {error}")
-        elif state == "password_required":
+        elif state == "secret_required":
             # Console strings cannot be reliably erased. A real UI should call
-            # submit_password() with bytes from a protected password widget.
+            # submit_secret() with bytes from a protected input widget.
             try:
                 await self.interface.call_cancel_interaction(
                     self.generation, request_id
                 )
             except Exception as error:
-                print(f"password cancellation failed: {error}")
+                print(f"secret cancellation failed: {error}")
 
         if state in TERMINAL_STATES:
             self.active_request = None
 
-    async def submit_password(
-        self, request_id: int, password: bytearray
+    async def submit_secret(
+        self, request_id: int, prompt_id: int, secret: bytearray
     ) -> None:
-        """Submit and erase a mutable password buffer."""
+        """Submit and erase a mutable verification-secret buffer."""
         read_fd = -1
         write_fd = -1
         try:
-            if self.bus is None or self.active_request != request_id:
+            if (
+                self.bus is None
+                or prompt_id == 0
+                or self.active_request != request_id
+            ):
                 raise RuntimeError("interaction is not active")
-            if len(password) > 1024 or 0 in password:
+            if len(secret) > 1024 or 0 in secret:
                 raise ValueError(
-                    "password must be at most 1024 bytes without NUL"
+                    "secret must be at most 1024 bytes without NUL"
                 )
 
             read_fd, write_fd = os.pipe2(os.O_CLOEXEC)
             written = 0
-            while written < len(password):
-                written += os.write(write_fd, memoryview(password)[written:])
+            while written < len(secret):
+                written += os.write(write_fd, memoryview(secret)[written:])
             os.close(write_fd)
             write_fd = -1
 
@@ -147,9 +165,9 @@ class Agent:
                     destination=SERVICE,
                     path=PATH,
                     interface=INTERFACE,
-                    member="SubmitPassword",
-                    signature="tth",
-                    body=[self.generation, request_id, 0],
+                    member="SubmitSecret",
+                    signature="ttth",
+                    body=[self.generation, request_id, prompt_id, 0],
                     unix_fds=[read_fd],
                 )
             )
@@ -161,8 +179,8 @@ class Agent:
                 os.close(write_fd)
             if read_fd >= 0:
                 os.close(read_fd)
-            password[:] = b"\0" * len(password)
-            password.clear()
+            secret[:] = b"\0" * len(secret)
+            secret.clear()
 
     async def close(self) -> None:
         if self.interface is not None and self.generation != 0:

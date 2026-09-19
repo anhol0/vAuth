@@ -8,5 +8,5 @@ go run .
 ```
 
 Run it from an active local login session. It handles presence requests and
-cancels password requests. The `submitPassword` function demonstrates Unix-file-
-descriptor transfer for integration with a real protected password widget.
+cancels secret requests. The `submitSecret` function demonstrates Unix-file-
+descriptor transfer for integration with a protected input widget.
