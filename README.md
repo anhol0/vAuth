@@ -72,20 +72,22 @@ and minimal C++, Python, and Go implementations are in
 
 Call `RegisterAgent()` once on a D-Bus connection before handling interactions.
 It returns a nonzero `generation`. The daemon sends that connection targeted
-`StateChanged(generation, requestId, state, operation, relyingPartyId)` signals.
+`StateChanged(generation, requestId, promptId, state, operation,
+relyingPartyId, message)` signals.
 Reply with `RespondToPresence(generation, requestId, approved)`,
-`SubmitPassword(generation, requestId, passwordPipe)`, or
+`SubmitSecret(generation, requestId, promptId, secretPipe)`, or
 `CancelInteraction(generation, requestId)` as appropriate. `UnregisterAgent()`
 has no arguments. Each request ID is nonzero and one-shot; an agent must ignore
 events for another generation or for a request that has already reached a
 terminal state.
 
-Passwords must be written to a newly created one-shot Unix pipe and submitted
-as its read descriptor. They must be at most 1024 bytes, must not contain NUL,
-and must be erased from UI and application buffers immediately after submission.
-An agent must not send passwords in D-Bus strings, run PAM itself, claim that
-verification succeeded, or retain authentication input. Custom graphical agents
-should run unprivileged and disable core dumps just as the bundled UI does.
+Verification secrets must be written to a newly created one-shot Unix pipe and
+submitted as its read descriptor. They must be at most 1024 bytes, must not
+contain NUL, and must be erased from UI and application buffers immediately
+after submission. An agent must not send secrets in D-Bus strings, run PAM
+itself, claim that verification succeeded, or retain authentication input.
+Custom graphical agents should run unprivileged and disable core dumps just as
+the bundled UI does.
 
 ### Agent trust model
 
@@ -100,7 +102,7 @@ old interaction context.
 This means every process in an eligible login session is inside the interaction-
 agent trust boundary. A hostile process could register before the intended UI,
 approve or deny presence requests, suppress the real UI, or present a deceptive
-password prompt. Users should run only trusted custom agents, and deployments
+secret prompt. Users should run only trusted custom agents, and deployments
 that do not accept this same-session threat model must restrict registration
 with a narrower D-Bus policy or an additional authorization mechanism. The
 current single-agent design is intended for single-seat use; multi-seat systems

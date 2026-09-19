@@ -65,7 +65,7 @@ does not define a D-Bus activation request for launching an agent.
 
 ## Daemon-to-agent signal
 
-### `StateChanged(t generation, t requestId, s state, s operation, s relyingPartyId)`
+### `StateChanged(t generation, t requestId, t promptId, s state, s operation, s relyingPartyId, s message)`
 
 This signal is targeted to the registered unique bus name rather than
 broadcast. Its fields are:
@@ -74,14 +74,22 @@ broadcast. Its fields are:
 |---|---|
 | `generation` | Registration generation that must equal the value returned by `RegisterAgent` |
 | `requestId` | Nonzero daemon-issued identifier for one interaction |
+| `promptId` | Nonzero only for `secret_required`; identifies that one prompt |
 | `state` | State-machine value listed below |
 | `operation` | CTAP ceremony or reason for the interaction |
 | `relyingPartyId` | RP ID to show to the user; do not treat it as a trusted display name |
+| `message` | Bounded PAM display text or secret prompt; empty requests generic fallback text |
 
 Agents must reject unknown state values, ignore another generation, and track at
 most one nonterminal request ID. A first signal for an interaction is either
 `presence_required` or `verification_started`. Terminal signals close the
-request ID; late UI callbacks must not send a reply for it.
+request ID; late UI callbacks must not send a reply for it. Agents must reject
+zero prompt IDs for `secret_required`, nonzero prompt IDs for other states, and
+stale or duplicate prompt IDs.
+
+`message` is valid UTF-8, contains no control characters, and is at most 512
+bytes. It is presentation text only and never proves that verification
+succeeded.
 
 ### Operation values
 
@@ -103,17 +111,17 @@ from the operation string.
 | `presence_approved` | Yes | Show optional success feedback; send no reply |
 | `presence_denied` | Yes | Show optional denial feedback; send no reply |
 | `verification_started` | No | Show verification progress; PAM is running in the daemon helper |
-| `fingerprint_required` | No | Ask the user to use the configured fingerprint authenticator; send no success claim |
-| `fingerprint_failed` | No | Show failure/retry feedback; the daemon still controls PAM |
-| `password_required` | No | Collect one password and call `SubmitPassword`, or call `CancelInteraction` |
+| `verification_information` | No | Show generic verification progress or instructions; send no success claim |
+| `verification_error` | No | Show generic failure/retry feedback; the daemon still controls PAM |
+| `secret_required` | No | Show `message`, collect the requested verification secret, and call `SubmitSecret`, or call `CancelInteraction` |
 | `verification_succeeded` | Yes | Show optional success feedback; send no reply |
 | `verification_failed` | Yes | Show optional failure feedback; send no reply |
 | `cancelled` | Yes | Close the UI and erase pending input |
 | `timed_out` | Yes | Close the UI and erase pending input |
 
 The daemon may repeat or move between verification-progress states as PAM
-progresses. Agents must not assume that fingerprint states always occur or that
-`password_required` follows `fingerprint_failed`.
+progresses. Agents must not infer a verification method from a state name or
+assume that `secret_required` occurs in any fixed sequence.
 
 Presence and verification interactions currently have a 30-second daemon-side
 deadline. The agent must still wait for a terminal signal instead of maintaining
@@ -126,7 +134,7 @@ presence_required
   -> presence_approved | presence_denied | cancelled | timed_out
 
 verification_started
-  -> fingerprint_required | fingerprint_failed | password_required
+  -> verification_information | verification_error | secret_required
   -> verification_succeeded | verification_failed | cancelled | timed_out
 ```
 
@@ -150,23 +158,24 @@ presence response after this method succeeds.
 Approval is only a user-presence decision. The agent does not authenticate the
 user and cannot claim user verification.
 
-### `SubmitPassword(t generation, t requestId, h passwordPipe) -> ()`
+### `SubmitSecret(t generation, t requestId, t promptId, h secretPipe) -> ()`
 
-Valid only while the matching request is in `password_required`. It is one-shot
-for the interaction. `passwordPipe` must be the read descriptor of a newly
-created Unix pipe containing only the password bytes:
+Valid only while the matching request is in `secret_required`. It is one-shot
+for that prompt. `promptId` must match the current `StateChanged` signal, and
+`secretPipe` must be the read descriptor of a newly created Unix pipe containing
+only the response bytes:
 
 1. Create a pipe with close-on-exec descriptors.
 2. Write at most 1024 bytes to its write end. Embedded NUL bytes are forbidden;
    do not append a newline or terminating NUL.
-3. Close the write end before calling `SubmitPassword`.
+3. Close the write end before calling `SubmitSecret`.
 4. Pass the read descriptor as D-Bus type `h`.
 5. Close local descriptors after the synchronous method call completes and
-   erase every mutable password buffer immediately.
+   erase every mutable secret buffer immediately.
 
 The daemon rejects regular files, sockets, open writer ends, oversized values,
 embedded NUL, duplicate submissions, and submissions in any other state. It
-reads the descriptor once and never accepts password bytes in a D-Bus string.
+reads the descriptor once and never accepts secret bytes in a D-Bus string.
 The daemon, not the agent, runs PAM and publishes the resulting state.
 
 ### `CancelInteraction(t generation, t requestId) -> ()`
@@ -176,7 +185,7 @@ user closes the UI or explicitly cancels. The daemon later publishes
 `cancelled`; method success itself is not the terminal state notification.
 
 Cancellation is one-shot and is rejected after a presence response, another
-cancellation, or a terminal state. Erase pending password input immediately
+cancellation, or a terminal state. Erase pending secret input immediately
 without waiting for the terminal signal.
 
 ## Errors and lifecycle rules
@@ -204,9 +213,9 @@ against the returned generation. Never reuse a request ID across generations.
 - Run unprivileged in the user's login session. Graphical agents should disable
   core dumps and prevent screenshots or accessibility export where their UI
   toolkit permits it.
-- Keep password data in mutable, bounded buffers, clear UI fields before
+- Keep secret data in mutable, bounded buffers, clear UI fields before
   submission, and overwrite buffers immediately afterwards.
-- Never log passwords, descriptors, full request payloads, or other secrets.
+- Never log secrets, descriptors, or full request payloads.
 - Never run PAM or report authentication success. Only the daemon publishes
   verification terminal states.
 - Bind every UI callback to both generation and request ID. Disable controls
@@ -221,7 +230,7 @@ an active local login session, but does not authenticate the executable as the
 bundled vAuth UI. Therefore every process able to register from that session is
 inside the interaction-agent trust boundary. A hostile process can race to
 register, approve or deny presence, suppress the intended UI, or present a
-deceptive password prompt.
+deceptive secret prompt.
 
 Deployments that do not accept that boundary must narrow the system-bus policy
 or add an authorization mechanism. Version 1 is also globally single-agent and
@@ -233,6 +242,6 @@ request among multiple simultaneously active seats.
 Minimal C++, Python, and Go console agents are provided in
 [`examples/agents/`](../examples/agents/). They demonstrate registration,
 directed signal handling, generation/request filtering, presence replies,
-cancellation, and the Unix-descriptor password submission primitive. They
-deliberately cancel password prompts because ordinary console strings are not an
-appropriate production password UI.
+cancellation, and the Unix-descriptor secret submission primitive. They
+deliberately cancel secret prompts because ordinary console strings are not an
+appropriate production input UI.
