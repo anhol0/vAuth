@@ -26,8 +26,13 @@ class UniqueFd {
 
 } // namespace
 
-void StoreAuthorization::read_authorization(const std::filesystem::path &path) {
-    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+void StoreAuthorization::read_authorization(
+    const StoreAuthorizationInput &input
+) {
+    const int fd = ::open(
+        input.path.c_str(),
+        O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+    );
     if (fd == -1) {
         throw std::system_error(errno, std::generic_category(),
                                 "open database authorization credential");
@@ -49,9 +54,18 @@ void StoreAuthorization::read_authorization(const std::filesystem::path &path) {
             "Database authorization credential must be owned by root or the "
             "service user");
     }
-    if ((status.st_mode & 0777) != 0400) {
+    const mode_t mode = status.st_mode & 0777;
+    const bool valid_mode = mode == 0400 || (
+        input.origin == StoreAuthorizationOrigin::systemd_credential &&
+        mode == 0440
+    );
+    if (!valid_mode) {
         throw std::runtime_error(
-            "Database authorization credential must have mode 0400");
+            input.origin == StoreAuthorizationOrigin::systemd_credential
+                ? "Systemd database authorization credential must have mode "
+                  "0400 or 0440"
+                : "Database authorization credential must have mode 0400"
+        );
     }
     if (status.st_size < 1 || status.st_size > 34) {
         throw std::runtime_error(
@@ -86,9 +100,17 @@ void StoreAuthorization::read_authorization(const std::filesystem::path &path) {
     }
 }
 
-StoreAuthorization::StoreAuthorization(const std::filesystem::path &path) {
+StoreAuthorization::StoreAuthorization(const std::filesystem::path &path)
+    : StoreAuthorization(StoreAuthorizationInput{
+        .path = path,
+        .origin = StoreAuthorizationOrigin::explicit_file,
+    }) {}
+
+StoreAuthorization::StoreAuthorization(
+    const StoreAuthorizationInput &input
+) {
     try {
-        read_authorization(path);
+        read_authorization(input);
     } catch (...) {
         OPENSSL_cleanse(bytes_.data(), bytes_.size());
         throw;
@@ -103,10 +125,13 @@ StoreAuthorization::~StoreAuthorization() {
     return {bytes_.data(), size_};
 }
 
-[[nodiscard]] std::filesystem::path store_authorization_path(
+[[nodiscard]] StoreAuthorizationInput store_authorization_path(
     const std::optional<std::filesystem::path> &explicit_path) {
     if (explicit_path.has_value()) {
-        return explicit_path.value();
+        return {
+            .path = explicit_path.value(),
+            .origin = StoreAuthorizationOrigin::explicit_file,
+        };
     }
 
     const char *credential_directory = std::getenv("CREDENTIALS_DIRECTORY");
@@ -115,5 +140,8 @@ StoreAuthorization::~StoreAuthorization() {
             "No database authorization credential was provided; use "
             "--auth-file or the systemd vauth-db-auth credential");
     }
-    return std::filesystem::path(credential_directory) / CREDENTIAL_NAME;
+    return {
+        .path = std::filesystem::path(credential_directory) / CREDENTIAL_NAME,
+        .origin = StoreAuthorizationOrigin::systemd_credential,
+    };
 }

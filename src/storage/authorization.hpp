@@ -7,9 +7,20 @@
 
 constexpr const char *CREDENTIAL_NAME = "vauth-db-auth";
 
+enum class StoreAuthorizationOrigin {
+    explicit_file,
+    systemd_credential,
+};
+
+struct StoreAuthorizationInput {
+    std::filesystem::path path;
+    StoreAuthorizationOrigin origin = StoreAuthorizationOrigin::explicit_file;
+};
+
 class StoreAuthorization {
   public:
     explicit StoreAuthorization(const std::filesystem::path &path);
+    explicit StoreAuthorization(const StoreAuthorizationInput &input);
     ~StoreAuthorization();
 
     StoreAuthorization(const StoreAuthorization &) = delete;
@@ -20,10 +31,10 @@ class StoreAuthorization {
     [[nodiscard]] std::string_view view() const noexcept;
 
   private:
-    void read_authorization(const std::filesystem::path &path);
+    void read_authorization(const StoreAuthorizationInput &input);
     std::array<char, 34> bytes_{};
     std::size_t size_ = 0;
 };
 
-[[nodiscard]] std::filesystem::path store_authorization_path(
+[[nodiscard]] StoreAuthorizationInput store_authorization_path(
     const std::optional<std::filesystem::path> &explicit_path);

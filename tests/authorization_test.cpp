@@ -162,7 +162,9 @@ void test_explicit_authorization_path_takes_precedence() {
         std::string("/ignored/systemd/credentials")
     );
     const std::filesystem::path explicit_path = "/explicit/authorization";
-    CHECK(store_authorization_path(explicit_path) == explicit_path);
+    const auto input = store_authorization_path(explicit_path);
+    CHECK(input.path == explicit_path);
+    CHECK(input.origin == StoreAuthorizationOrigin::explicit_file);
 }
 
 void test_systemd_credential_path_is_resolved() {
@@ -171,10 +173,9 @@ void test_systemd_credential_path_is_resolved() {
         "CREDENTIALS_DIRECTORY",
         temporary.path().string()
     );
-    CHECK(
-        store_authorization_path(std::nullopt) ==
-        temporary.path() / CREDENTIAL_NAME
-    );
+    const auto input = store_authorization_path(std::nullopt);
+    CHECK(input.path == temporary.path() / CREDENTIAL_NAME);
+    CHECK(input.origin == StoreAuthorizationOrigin::systemd_credential);
 }
 
 void test_missing_systemd_credential_directory_is_rejected() {
@@ -241,6 +242,37 @@ void test_incorrect_mode_is_rejected() {
     TemporaryDirectory temporary;
     const auto path = temporary.write("wrong-mode", "secret", 0600);
     expect_exception([&] { StoreAuthorization authorization(path); });
+}
+
+void test_explicit_group_readable_file_is_rejected() {
+    TemporaryDirectory temporary;
+    const auto path = temporary.write("group-readable", "secret", 0440);
+    expect_exception([&] { StoreAuthorization authorization(path); });
+}
+
+void test_systemd_group_readable_credential_is_accepted() {
+    TemporaryDirectory temporary;
+    const auto path = temporary.write("systemd-credential", "secret", 0440);
+    StoreAuthorization authorization(StoreAuthorizationInput{
+        .path = path,
+        .origin = StoreAuthorizationOrigin::systemd_credential,
+    });
+    CHECK(authorization.view() == "secret");
+}
+
+void test_systemd_writable_credential_is_rejected() {
+    TemporaryDirectory temporary;
+    const auto path = temporary.write(
+        "writable-systemd-credential",
+        "secret",
+        0640
+    );
+    expect_exception([&] {
+        StoreAuthorization authorization(StoreAuthorizationInput{
+            .path = path,
+            .origin = StoreAuthorizationOrigin::systemd_credential,
+        });
+    });
 }
 
 void test_symlink_is_rejected() {
@@ -315,6 +347,18 @@ int main() {
     runner.run(
         "test_incorrect_mode_is_rejected",
         test_incorrect_mode_is_rejected
+    );
+    runner.run(
+        "test_explicit_group_readable_file_is_rejected",
+        test_explicit_group_readable_file_is_rejected
+    );
+    runner.run(
+        "test_systemd_group_readable_credential_is_accepted",
+        test_systemd_group_readable_credential_is_accepted
+    );
+    runner.run(
+        "test_systemd_writable_credential_is_rejected",
+        test_systemd_writable_credential_is_rejected
     );
     runner.run("test_symlink_is_rejected", test_symlink_is_rejected);
     runner.run(
