@@ -240,25 +240,31 @@ int authenticate(
     return rc;
 }
 
-vauth::uv::VerificationResult verification_result(int pam_status) noexcept {
-    if(pam_status == PAM_SUCCESS)
-        return vauth::uv::VerificationResult::success;
-    switch(pam_status) {
-        case PAM_OPEN_ERR:
-        case PAM_SYMBOL_ERR:
-        case PAM_SERVICE_ERR:
-        case PAM_SYSTEM_ERR:
-        case PAM_BUF_ERR:
-        case PAM_CONV_ERR:
-        case PAM_ABORT:
-        case PAM_MODULE_UNKNOWN:
-        case PAM_BAD_ITEM:
-            return vauth::uv::VerificationResult::error;
-        default:
-            return vauth::uv::VerificationResult::denied;
-    }
-}
+} // namespace
 
+vauth::uv::VerificationResult vauth::uv::verification_result_from_pam_status(
+    int pam_status
+) noexcept {
+    switch(pam_status) {
+        case PAM_SUCCESS:
+            return VerificationResult::success;
+
+        // These are the only terminal results expected from pam_authenticate
+        // and pam_acct_mgmt that mean the user or account was rejected.
+        case PAM_PERM_DENIED:
+        case PAM_AUTH_ERR:
+        case PAM_CRED_INSUFFICIENT:
+        case PAM_USER_UNKNOWN:
+        case PAM_MAXTRIES:
+        case PAM_NEW_AUTHTOK_REQD:
+        case PAM_ACCT_EXPIRED:
+            return VerificationResult::denied;
+
+        // Module, configuration, conversation, and unrecognised results are
+        // infrastructure failures. Do not turn them into a user denial.
+        default:
+            return VerificationResult::error;
+    }
 }
 
 int run_vauth_auth_handler(int argc, char** argv) noexcept {
@@ -293,7 +299,9 @@ int run_vauth_auth_handler(int argc, char** argv) noexcept {
         const int result = authenticate(argv[0], argv[1], argv[2], context);
         send_verifier_message(
             context,
-            vauth::uv::VerificationComplete{verification_result(result)}
+            vauth::uv::VerificationComplete{
+                vauth::uv::verification_result_from_pam_status(result)
+            }
         );
         return result;
     } catch(...) {
