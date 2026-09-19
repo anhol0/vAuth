@@ -7,6 +7,9 @@
 #include <iostream>
 #include <optional>
 #include <stop_token>
+#include <string>
+#include <vector>
+#include <unistd.h>
 
 namespace {
 
@@ -43,6 +46,7 @@ class TestChannel final : public UserInteractionChannel {
 public:
     uint64_t nextRequestId = 1;
     bool waitedForPresence = false;
+    std::vector<UserInteractionState> publishedStates;
 
     [[nodiscard]] uint64_t begin_interaction(
         const UserContext&,
@@ -54,9 +58,10 @@ public:
     uint64_t publish_state(
         const UserContext&,
         const UserInteractionRequest&,
-        UserInteractionState,
+        UserInteractionState state,
         std::string_view
     ) override {
+        publishedStates.push_back(state);
         return 0;
     }
 
@@ -96,7 +101,7 @@ public:
 bool test_no_registered_agent_fails_closed() {
     TestProvider provider;
     TestChannel channel;
-    PamUserInteraction interaction("vauth", "/tmp", provider, channel);
+    PamUserInteraction interaction("/tmp/verifier.sock", provider, channel);
 
     try {
         static_cast<void>(interaction.current_context({}));
@@ -110,7 +115,7 @@ bool test_registered_agent_supplies_context() {
     TestProvider provider;
     provider.context = registered_user();
     TestChannel channel;
-    PamUserInteraction interaction("vauth", "/tmp", provider, channel);
+    PamUserInteraction interaction("/tmp/verifier.sock", provider, channel);
 
     const UserContext context = interaction.current_context({});
     CHECK(context.binding() == provider.context->binding());
@@ -124,7 +129,7 @@ bool test_agent_loss_before_interaction_fails_closed() {
     provider.context = user;
     TestChannel channel;
     channel.nextRequestId = 0;
-    PamUserInteraction interaction("vauth", "/tmp", provider, channel);
+    PamUserInteraction interaction("/tmp/verifier.sock", provider, channel);
     KeepaliveState keepalive;
     const UserInteractionRequest request{
         .operation = UserInteractionOperation::make_credential,
@@ -146,6 +151,36 @@ bool test_agent_loss_before_interaction_fails_closed() {
     return false;
 }
 
+bool test_verifier_failure_is_an_infrastructure_error() {
+    TestProvider provider;
+    const UserContext user = registered_user();
+    provider.context = user;
+    TestChannel channel;
+    const std::string socket_path =
+        "/tmp/vauth-missing-verifier-" + std::to_string(getpid());
+    PamUserInteraction interaction(socket_path, provider, channel);
+    KeepaliveState keepalive;
+    const UserInteractionRequest request{
+        .operation = UserInteractionOperation::get_assertion,
+        .relyingPartyId = "example.com"
+    };
+
+    try {
+        static_cast<void>(interaction.request_verification(
+            user,
+            request,
+            {},
+            keepalive
+        ));
+    } catch(const VerificationInfrastructureError&) {
+        CHECK(channel.publishedStates.size() == 2);
+        CHECK(channel.publishedStates[0] == UserInteractionState::verification_started);
+        CHECK(channel.publishedStates[1] == UserInteractionState::verification_failed);
+        return true;
+    }
+    return false;
+}
+
 } // namespace
 
 int main() {
@@ -161,6 +196,10 @@ int main() {
     runner.run(
         "agent loss before interaction fails closed",
         test_agent_loss_before_interaction_fails_closed
+    );
+    runner.run(
+        "verifier failure is an infrastructure error",
+        test_verifier_failure_is_an_infrastructure_error
     );
     return runner.finish();
 }

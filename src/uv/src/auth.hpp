@@ -8,8 +8,7 @@
 class PamUserInteraction final : public UserInteraction {
 public:
     PamUserInteraction(
-        std::string process_name,
-        std::string configuration_directory,
+        std::string verifier_socket_path,
         UserContextProvider& context_provider,
         UserInteractionChannel& interaction_channel
     );
@@ -31,8 +30,7 @@ public:
     ) override;
 
 private:
-    std::string processName_;
-    std::string configurationDirectory_;
+    std::string verifierSocketPath_;
     UserContextProvider& contextProvider_;
     UserInteractionChannel& interactionChannel_;
 };

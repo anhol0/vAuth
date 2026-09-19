@@ -83,10 +83,15 @@ CTAPPacket CTAPCommandHandler::handle(
             throw;
         } catch(const UserActionTimedOut&) {
             throw;
+        } catch(const VerificationInfrastructureError&) {
+            return make_cbor_error(
+                request.cid,
+                CTAPError::CTAP1_ERR_OTHER
+            );
         } catch(const UserInteractionUnavailable&) {
             return make_cbor_error(
                 request.cid,
-                CTAPError::CTAP2_ERR_OPERATION_DENIED
+                CTAPError::CTAP1_ERR_OTHER
             );
         } catch(const CborEncodingError& error) {
             return make_cbor_error(
@@ -138,11 +143,17 @@ CTAPPacket CTAPCommandHandler::handle(
             } catch(const UserActionTimedOut&) {
                 reset();
                 throw;
+            } catch(const VerificationInfrastructureError&) {
+                reset();
+                return make_cbor_error(
+                    request.cid,
+                    CTAPError::CTAP1_ERR_OTHER
+                );
             } catch(const UserInteractionUnavailable&) {
                 reset();
                 return make_cbor_error(
                     request.cid,
-                    CTAPError::CTAP2_ERR_OPERATION_DENIED
+                    CTAPError::CTAP1_ERR_OTHER
                 );
             } catch(const CborEncodingError& error) {
                 reset();
@@ -190,11 +201,17 @@ CTAPPacket CTAPCommandHandler::handle(
             } catch(const UserActionTimedOut&) {
                 reset();
                 throw;
+            } catch(const VerificationInfrastructureError&) {
+                reset();
+                return make_cbor_error(
+                    request.cid,
+                    CTAPError::CTAP1_ERR_OTHER
+                );
             } catch(const UserInteractionUnavailable&) {
                 reset();
                 return make_cbor_error(
                     request.cid,
-                    CTAPError::CTAP2_ERR_OPERATION_DENIED
+                    CTAPError::CTAP1_ERR_OTHER
                 );
             } catch(const CborEncodingError& error) {
                 reset();

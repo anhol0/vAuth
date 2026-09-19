@@ -31,6 +31,13 @@ public:
     }
 };
 
+class VerificationInfrastructureError final : public std::exception {
+public:
+    const char* what() const noexcept override {
+        return "User-verification infrastructure failed";
+    }
+};
+
 inline void cancellation_point(std::stop_token stop) {
     if(stop.stop_requested()) {
         throw OperationCancelled{};

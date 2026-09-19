@@ -1,13 +1,11 @@
 #include "auth.hpp"
 
-#include "auth_handler.hpp"
-#include "cancellable_process.hpp"
 #include "cancellation.hpp"
 #include "keepalive.hpp"
+#include "verifier_client.hpp"
 
 #include <chrono>
 #include <string>
-#include <unistd.h>
 #include <utility>
 
 namespace {
@@ -62,9 +60,7 @@ private:
 };
 
 vauth::uv::VerificationResult authenticate_user(
-    const std::string& username,
-    const std::string& process_name,
-    const std::string& confdir,
+    const std::string& verifier_socket_path,
     std::stop_token stop,
     KeepaliveState& keepalive,
     UserInteractionChannel& interaction_channel,
@@ -106,15 +102,8 @@ vauth::uv::VerificationResult authenticate_user(
             deadline - now
         );
     };
-    return vauth::uv::run_cancellable_verifier_program(
-        "/proc/self/exe",
-        {
-            std::string(VAUTH_AUTH_HANDLER_COMMAND),
-            username,
-            process_name,
-            confdir,
-            std::to_string(getpid())
-        },
+    return vauth::uv::run_verifier_service(
+        verifier_socket_path,
         vauth::uv::StartVerification{
             .targetUid = user.uid,
             .sessionId = user.session->sessionId
@@ -146,13 +135,11 @@ vauth::uv::VerificationResult authenticate_user(
 }
 
 PamUserInteraction::PamUserInteraction(
-    std::string process_name,
-    std::string configuration_directory,
+    std::string verifier_socket_path,
     UserContextProvider& context_provider,
     UserInteractionChannel& interaction_channel
 ) :
-    processName_(std::move(process_name)),
-    configurationDirectory_(std::move(configuration_directory)),
+    verifierSocketPath_(std::move(verifier_socket_path)),
     contextProvider_(context_provider),
     interactionChannel_(interaction_channel)
 {}
@@ -246,28 +233,42 @@ UserInteractionResult PamUserInteraction::request_verification(
         UserInteractionState::verification_started
     );
     try {
-        const bool approved = authenticate_user(
-            user.name,
-            processName_,
-            configurationDirectory_,
+        const auto verification = authenticate_user(
+            verifierSocketPath_,
             stop,
             keepalive,
             interactionChannel_,
             user,
             active_request
-        ) == vauth::uv::VerificationResult::success &&
-            context_is_still_current(contextProvider_, user);
-        publish_state(
-            interactionChannel_,
-            user,
-            active_request,
-            approved
-                ? UserInteractionState::verification_succeeded
-                : UserInteractionState::verification_failed
         );
-        return approved
-            ? UserInteractionResult::approved
-            : UserInteractionResult::denied;
+        switch(verification) {
+            case vauth::uv::VerificationResult::success:
+                if(!context_is_still_current(contextProvider_, user)) {
+                    publish_state(
+                        interactionChannel_, user, active_request,
+                        UserInteractionState::verification_failed
+                    );
+                    throw VerificationInfrastructureError{};
+                }
+                publish_state(
+                    interactionChannel_, user, active_request,
+                    UserInteractionState::verification_succeeded
+                );
+                return UserInteractionResult::approved;
+            case vauth::uv::VerificationResult::denied:
+                publish_state(
+                    interactionChannel_, user, active_request,
+                    UserInteractionState::verification_failed
+                );
+                return UserInteractionResult::denied;
+            case vauth::uv::VerificationResult::error:
+                publish_state(
+                    interactionChannel_, user, active_request,
+                    UserInteractionState::verification_failed
+                );
+                throw VerificationInfrastructureError{};
+        }
+        throw VerificationInfrastructureError{};
     } catch(const UserInteractionCancelled&) {
         publish_state(
             interactionChannel_, user, active_request,
@@ -286,5 +287,13 @@ UserInteractionResult PamUserInteraction::request_verification(
             UserInteractionState::timed_out
         );
         throw;
+    } catch(const VerificationInfrastructureError&) {
+        throw;
+    } catch(const std::exception&) {
+        publish_state(
+            interactionChannel_, user, active_request,
+            UserInteractionState::verification_failed
+        );
+        throw VerificationInfrastructureError{};
     }
 }
