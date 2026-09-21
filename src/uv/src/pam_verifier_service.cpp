@@ -25,6 +25,41 @@ namespace {
 
 constexpr std::size_t MAX_ACCOUNT_BUFFER_SIZE = 1024 * 1024;
 
+uid_t uid_for_username(std::string_view username) {
+    const long suggested_size = sysconf(_SC_GETPW_R_SIZE_MAX);
+    std::size_t buffer_size = suggested_size > 0
+        ? static_cast<std::size_t>(suggested_size)
+        : 16384;
+    buffer_size = std::min(buffer_size, MAX_ACCOUNT_BUFFER_SIZE);
+
+    while(true) {
+        std::vector<char> buffer(buffer_size);
+        passwd account{};
+        passwd* result = nullptr;
+        const std::string account_name(username);
+        const int status = getpwnam_r(
+            account_name.c_str(),
+            &account,
+            buffer.data(),
+            buffer.size(),
+            &result
+        );
+        if(status == 0 && result != nullptr)
+            return account.pw_uid;
+        if(status != ERANGE || buffer_size == MAX_ACCOUNT_BUFFER_SIZE) {
+            if(status != 0) {
+                throw std::system_error(
+                    status,
+                    std::generic_category(),
+                    "resolve vAuth daemon account"
+                );
+            }
+            throw std::runtime_error("vAuth daemon account does not exist");
+        }
+        buffer_size = std::min(buffer_size * 2, MAX_ACCOUNT_BUFFER_SIZE);
+    }
+}
+
 std::string username_for_uid(uint32_t requested_uid) {
     if(
         static_cast<uintmax_t>(requested_uid) >
@@ -68,8 +103,8 @@ std::string username_for_uid(uint32_t requested_uid) {
 
 class DaemonConversation {
 public:
-    explicit DaemonConversation(int socket_fd)
-        : socket_(socket_fd) {}
+    explicit DaemonConversation(VerifierSocket socket)
+        : socket_(std::move(socket)) {}
 
     [[nodiscard]] StartVerification receive_start() {
         VerifierMessage message = socket_.receive();
@@ -171,6 +206,37 @@ private:
 
 }
 
+void authorize_verifier_peer(
+    const VerifierPeerCredentials& peer,
+    uid_t expected_daemon_uid
+) {
+    if(peer.pid <= 0)
+        throw std::runtime_error("PAM verifier peer has no process ID");
+    if(peer.uid != expected_daemon_uid) {
+        throw std::runtime_error(
+            "PAM verifier peer is not the vAuth daemon user"
+        );
+    }
+}
+
+void authorize_verification_session(
+    const StartVerification& request,
+    const vauth::LoginSessionProperties& session
+) {
+    if(request.sessionId.empty())
+        throw std::invalid_argument("verification session ID is empty");
+    if(
+        static_cast<uintmax_t>(request.targetUid) >
+        static_cast<uintmax_t>(std::numeric_limits<uid_t>::max())
+    ) {
+        throw std::invalid_argument("verification UID is out of range");
+    }
+    vauth::validate_active_local_session(
+        session,
+        static_cast<uid_t>(request.targetUid)
+    );
+}
+
 int run_pam_verifier_service(
     int socket_fd,
     const std::string& pam_service,
@@ -180,12 +246,27 @@ int run_pam_verifier_service(
     if(timeout <= std::chrono::steady_clock::duration::zero())
         throw std::invalid_argument("PAM verifier timeout must be positive");
 
-    DaemonConversation daemon(socket_fd);
+    VerifierSocket connection(socket_fd);
+    authorize_verifier_peer(
+        connection.peer_credentials(),
+        uid_for_username(VAUTH_DAEMON_ACCOUNT)
+    );
+    DaemonConversation daemon(std::move(connection));
     StartVerification start = daemon.receive_start();
-    const std::string username = username_for_uid(start.targetUid);
+    std::string username;
+    try {
+        authorize_verification_session(
+            start,
+            vauth::query_login_session(start.sessionId)
+        );
+        username = username_for_uid(start.targetUid);
+    } catch(...) {
+        daemon.complete(VerificationResult::error);
+        throw;
+    }
 
     try {
-        const VerificationResult result = run_cancellable_verifier_program(
+        VerificationResult result = run_cancellable_verifier_program(
             "/proc/self/exe",
             {
                 std::string(VAUTH_AUTH_HANDLER_COMMAND),
@@ -194,7 +275,7 @@ int run_pam_verifier_service(
                 pam_configuration_directory,
                 std::to_string(getpid())
             },
-            std::move(start),
+            start,
             {},
             timeout,
             [&daemon](const VerificationStatus& status) {
@@ -207,6 +288,17 @@ int run_pam_verifier_service(
                 return daemon.cancellation_requested();
             }
         );
+        if(result == VerificationResult::success) {
+            try {
+                authorize_verification_session(
+                    start,
+                    vauth::query_login_session(start.sessionId)
+                );
+            } catch(...) {
+                daemon.complete(VerificationResult::error);
+                throw;
+            }
+        }
         daemon.complete(result);
         return 0;
     } catch(const UserInteractionCancelled&) {

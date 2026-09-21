@@ -3,6 +3,7 @@
 #include "verifier_protocol.hpp"
 
 #include <stdexcept>
+#include <sys/types.h>
 
 namespace vauth::uv {
 
@@ -11,6 +12,12 @@ inline constexpr int VERIFIER_SOCKET_FD = 3;
 class VerifierSocketError : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
+};
+
+struct VerifierPeerCredentials {
+    pid_t pid;
+    uid_t uid;
+    gid_t gid;
 };
 
 // Owns one connected AF_UNIX SOCK_SEQPACKET descriptor. Construction adopts
@@ -28,6 +35,7 @@ public:
 
     void send(const VerifierMessage& message);
     [[nodiscard]] VerifierMessage receive();
+    [[nodiscard]] VerifierPeerCredentials peer_credentials() const;
 
     [[nodiscard]] int native_handle() const noexcept;
 

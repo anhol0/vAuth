@@ -6,6 +6,7 @@
 #include "interaction_registry.hpp"
 #include "log.hpp"
 #include "secret_pipe.hpp"
+#include "session_validation.hpp"
 
 #include <sdbus-c++/sdbus-c++.h>
 #include <systemd/sd-login.h>
@@ -136,27 +137,6 @@ std::string username_for_uid(uid_t uid) {
     }
 }
 
-void validate_active_local_session(const char* session, uid_t peer_uid) {
-    uid_t session_uid = 0;
-    const int uid_result = sd_session_get_uid(session, &session_uid);
-    if(uid_result < 0)
-        throw_login_error(uid_result, "resolve agent session user");
-    if(session_uid != peer_uid)
-        throw std::runtime_error("Agent UID does not own its login session");
-
-    const int active = sd_session_is_active(session);
-    if(active < 0)
-        throw_login_error(active, "inspect agent session activity");
-    if(active != 1)
-        throw std::runtime_error("Agent login session is not active");
-
-    const int remote = sd_session_is_remote(session);
-    if(remote < 0)
-        throw_login_error(remote, "inspect agent session locality");
-    if(remote != 0)
-        throw std::runtime_error("Remote login sessions cannot register agents");
-}
-
 AgentPeer resolve_peer(const sdbus::MethodCall& call) {
     const char* sender = call.getSender();
     if(sender == nullptr || sender[0] != ':')
@@ -170,7 +150,7 @@ AgentPeer resolve_peer(const sdbus::MethodCall& call) {
         throw std::runtime_error("Agent UID is out of range");
 
     auto session = session_for_peer(pid, uid);
-    validate_active_local_session(session.get(), uid);
+    vauth::require_active_local_session(session.get(), uid);
     return {
         .uid = static_cast<uint32_t>(uid),
         .userName = username_for_uid(uid),
@@ -182,23 +162,10 @@ AgentPeer resolve_peer(const sdbus::MethodCall& call) {
 bool session_is_still_active(const UserContext& context) noexcept {
     if(!context.session)
         return false;
-
-    uid_t session_uid = 0;
-    const int uid_result = sd_session_get_uid(
-        context.session->sessionId.c_str(),
-        &session_uid
+    return vauth::is_active_local_session(
+        context.session->sessionId,
+        static_cast<uid_t>(context.uid)
     );
-    const int active = sd_session_is_active(
-        context.session->sessionId.c_str()
-    );
-    const int remote = sd_session_is_remote(
-        context.session->sessionId.c_str()
-    );
-    return
-        uid_result >= 0 &&
-        session_uid == static_cast<uid_t>(context.uid) &&
-        active == 1 &&
-        remote == 0;
 }
 
 struct StateEvent {

@@ -85,8 +85,8 @@ a non-interactive system executable directory such as
 `vauth-ui` runs as the desktop user. `vauthctl` is a separate administration
 program. Neither should be installed setuid.
 
-The executable rename and some of the verifier authorization checks remain
-release work. The diagrams describe the intended final state.
+The executable rename remains release work. The diagrams describe the intended
+final state.
 
 ## Main daemon data path
 
@@ -179,11 +179,12 @@ sequenceDiagram
 ```
 
 The daemon-to-broker connection uses one Unix `SOCK_SEQPACKET` connection per
-verification. The final broker must obtain the peer identity with
-`SO_PEERCRED`, require the dedicated daemon UID, and validate through logind
-that the supplied session exists, is active and local, and belongs to the
-supplied target UID. The broker resolves the account name itself and uses fixed
-PAM service and configuration values.
+verification. The broker obtains the peer identity with `SO_PEERCRED`, requires
+the dedicated daemon UID, and validates through logind that the supplied
+session exists, is active and local, and belongs to the supplied target UID.
+It repeats the session validation before accepting PAM success. The broker
+resolves the account name itself and uses fixed PAM service and configuration
+values.
 
 The broker remains responsive while PAM blocks. It forwards status and secret
 messages, observes daemon cancellation or disconnect, terminates and reaps the
@@ -429,11 +430,9 @@ under `/var/lib/vauth`.
 
 The target architecture requires the following remaining implementation work:
 
-1. Authenticate the verifier socket peer and validate UID/session binding with
-   logind before launching PAM.
-2. Complete cancellation, disconnect, timeout, worker-reaping, and real PAM
+1. Complete cancellation, disconnect, timeout, worker-reaping, and real PAM
    conversation integration tests.
-3. Finalize and harden the installed socket/service units.
-4. Add the systemd-backed execution path for privileged `vauthctl` operations.
-5. Complete the installed daemon rename to `vauthd` and align packaging,
+2. Finalize and harden the installed socket/service units.
+3. Add the systemd-backed execution path for privileged `vauthctl` operations.
+4. Complete the installed daemon rename to `vauthd` and align packaging,
    service files, documentation, and tests.

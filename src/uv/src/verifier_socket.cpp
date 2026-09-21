@@ -202,6 +202,29 @@ VerifierMessage VerifierSocket::receive() {
     ));
 }
 
+VerifierPeerCredentials VerifierSocket::peer_credentials() const {
+    require_open(fd_);
+    ucred credentials{};
+    socklen_t size = sizeof(credentials);
+    if(getsockopt(fd_, SOL_SOCKET, SO_PEERCRED, &credentials, &size) != 0) {
+        throw std::system_error(
+            errno,
+            std::generic_category(),
+            "inspect verifier peer credentials"
+        );
+    }
+    if(size != sizeof(credentials) || credentials.pid <= 0) {
+        throw VerifierSocketError(
+            "verifier peer returned invalid credentials"
+        );
+    }
+    return {
+        .pid = credentials.pid,
+        .uid = credentials.uid,
+        .gid = credentials.gid
+    };
+}
+
 int VerifierSocket::native_handle() const noexcept {
     return fd_;
 }

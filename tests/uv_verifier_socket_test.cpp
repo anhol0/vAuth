@@ -188,6 +188,17 @@ bool test_packet_boundaries_and_order_are_preserved() {
     return true;
 }
 
+bool test_peer_credentials_come_from_the_kernel() {
+    using namespace vauth::uv;
+    auto pair = make_socket_pair();
+    VerifierSocket socket(pair.first.release());
+    const VerifierPeerCredentials peer = socket.peer_credentials();
+    CHECK(peer.pid == getpid());
+    CHECK(peer.uid == getuid());
+    CHECK(peer.gid == getgid());
+    return true;
+}
+
 bool test_maximum_sized_packets_round_trip() {
     using namespace vauth::uv;
     auto pair = make_socket_pair();
@@ -403,6 +414,10 @@ int main() {
     runner.run(
         "packet boundaries and order are preserved",
         test_packet_boundaries_and_order_are_preserved
+    );
+    runner.run(
+        "peer credentials come from the kernel",
+        test_peer_credentials_come_from_the_kernel
     );
     runner.run(
         "maximum sized packets round trip",

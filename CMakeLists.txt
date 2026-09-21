@@ -22,6 +22,13 @@ pkg_check_modules(TSS2_FAPI REQUIRED tss2-fapi)
 pkg_check_modules(TSS2_RC REQUIRED tss2-rc)
 pkg_check_modules(TSS2_MU REQUIRED tss2-mu)
 
+add_library(vauth_session
+    ${SOURCE_DIR}/session_validation.cpp
+)
+target_include_directories(vauth_session PUBLIC ${SOURCE_DIR})
+target_link_libraries(vauth_session PUBLIC PkgConfig::SYSTEMD)
+target_link_libraries(uv PUBLIC vauth_session)
+
 # Logging library
 add_library(vauth_log
     ${SOURCE_DIR}/log.cpp
@@ -42,6 +49,7 @@ target_compile_definitions(vauth_dbus PRIVATE
 target_link_libraries(vauth_dbus PUBLIC
     SDBusCpp::sdbus-c++
     PkgConfig::SYSTEMD
+    vauth_session
 )
 target_link_libraries(vauth_dbus PRIVATE vauth_log)
 

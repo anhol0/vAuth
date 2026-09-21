@@ -174,6 +174,23 @@ add_test(
     COMMAND uv_auth_handler_tests
 )
 
+add_executable(uv_verifier_authorization_tests
+    uv_verifier_authorization_test.cpp
+)
+
+target_include_directories(uv_verifier_authorization_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+)
+
+target_link_libraries(uv_verifier_authorization_tests PRIVATE
+    uv
+)
+
+add_test(
+    NAME uv_verifier_authorization
+    COMMAND uv_verifier_authorization_tests
+)
+
 add_executable(dbus_agent_registry_tests
     dbus_agent_registry_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dbus/agent_registry.cpp
