@@ -137,8 +137,8 @@ StoreAuthorization::~StoreAuthorization() {
     const char *credential_directory = std::getenv("CREDENTIALS_DIRECTORY");
     if (credential_directory == nullptr || credential_directory[0] == '\0') {
         throw std::runtime_error(
-            "No database authorization credential was provided; use "
-            "--auth-file or the systemd vauth-db-auth credential");
+            "Systemd database authorization credential vauth-db-auth was not "
+            "provided");
     }
     return {
         .path = std::filesystem::path(credential_directory) / CREDENTIAL_NAME,

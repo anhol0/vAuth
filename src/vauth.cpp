@@ -1,6 +1,5 @@
 #include <cerrno>
 #include <chrono>
-#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <signal.h>
@@ -75,18 +74,13 @@ class ShutdownSignal {
     bool maskInstalled_ = false;
 };
 
-struct Options {
-    std::optional<std::filesystem::path> authorizationPath;
-};
-
 [[noreturn]] void usage_error(const std::string &message) {
     throw std::invalid_argument(
-        message + "\nUsage: vauth [run] [--auth-file PATH]"
+        message + "\nUsage: vauth [run]"
     );
 }
 
-Options parse_options(int argc, char **argv) {
-    Options options;
+void parse_options(int argc, char **argv) {
     int index = 1;
     if (index < argc && argv[index][0] != '-') {
         const std::string command = argv[index++];
@@ -95,21 +89,9 @@ Options parse_options(int argc, char **argv) {
         }
     }
 
-    while (index < argc) {
-        const std::string argument = argv[index++];
-        if (argument == "--auth-file") {
-            if (index >= argc) {
-                usage_error("Incomplete option: --auth-file");
-            }
-            if (options.authorizationPath) {
-                usage_error("--auth-file may be specified only once");
-            }
-            options.authorizationPath = argv[index++];
-            continue;
-        }
-        usage_error("Unknown option: " + argument);
+    if (index < argc) {
+        usage_error("Unknown option: " + std::string(argv[index]));
     }
-    return options;
 }
 
 int activated_verifier_socket() {
@@ -161,11 +143,11 @@ int main(int argc, char **argv) {
             );
         }
 
-        const Options options = parse_options(argc, argv);
+        parse_options(argc, argv);
         ShutdownSignal shutdown_signal;
 
         StoreAuthorization authorization(
-            store_authorization_path(options.authorizationPath));
+            store_authorization_path(std::nullopt));
         FapiStoreSecurity security(authorization.view());
 
         CredentialStoreLock store_lock(STORE_PATH);

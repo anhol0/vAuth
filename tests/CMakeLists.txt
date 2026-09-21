@@ -239,6 +239,13 @@ add_test(
     COMMAND authorization_tests
 )
 
+add_test(
+    NAME daemon_cli
+    COMMAND bash
+        ${CMAKE_CURRENT_SOURCE_DIR}/daemon_cli_test.sh
+        $<TARGET_FILE:vauth>
+)
+
 add_executable(log_tests
     log_test.cpp
 )

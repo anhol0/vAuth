@@ -135,7 +135,7 @@ sudo systemd-creds encrypt --name=vauth-db-auth - \
   /etc/credstore.encrypted/vauth-db-auth
 sudo systemd-run --wait --pipe --property=Type=oneshot \
   --property=LoadCredentialEncrypted=vauth-db-auth:/etc/credstore.encrypted/vauth-db-auth \
-  /usr/local/bin/vauth provision
+  /usr/local/bin/vauthctl provision
 ```
 
 Enter a non-empty authorization of at most 32 bytes when prompted. Keep recovery
@@ -143,12 +143,15 @@ material separately: clearing the TPM or losing this authorization makes the
 database unrecoverable. The example service configuration is available at
 [`config/vauth.service.example`](config/vauth.service.example).
 
-For local development, pass a mode-`0400` authorization file directly:
+For local provisioning and recovery, `vauthctl` can read a protected
+mode-`0400` authorization file directly:
 
 ```sh
-sudo ./build/vauth provision --auth-file .dev/vauth-db-auth
-sudo ./build/vauth run --auth-file .dev/vauth-db-auth
+sudo ./build/vauthctl/vauthctl provision --auth-file .dev/vauth-db-auth
 ```
+
+The daemon does not accept an authorization-file override. Run it through its
+systemd unit, which supplies `vauth-db-auth` with `LoadCredentialEncrypted`.
 
 Provisioning generates the database key and rollback counter. The transient TPM
 parent is recreated when vAuth starts, and individual credential keys are
