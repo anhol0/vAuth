@@ -1,12 +1,14 @@
 [Unit]
 Description=Lamellix Labs vAuth virtual authenticator
-After=systemd-udevd.service
+Wants=vauth-pam-verifier.socket
+After=systemd-udevd.service vauth-pam-verifier.socket
 
 [Service]
 Type=dbus
 BusName=org.lamellix.vAuth
 User=vauth
 Group=vauth
+SupplementaryGroups=tss
 ExecStart=/usr/local/bin/vauth run
 StateDirectory=vauth
 StateDirectoryMode=0700
@@ -23,3 +25,4 @@ DeviceAllow=/dev/tpm0 rw
 
 [Install]
 WantedBy=multi-user.target
+

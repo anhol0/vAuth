@@ -123,6 +123,23 @@ add_test(
     COMMAND uv_verifier_socket_tests
 )
 
+add_executable(uv_verifier_client_tests
+    uv_verifier_client_test.cpp
+)
+
+target_include_directories(uv_verifier_client_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+)
+
+target_link_libraries(uv_verifier_client_tests PRIVATE
+    uv_verifier_client
+)
+
+add_test(
+    NAME uv_verifier_client
+    COMMAND uv_verifier_client_tests
+)
+
 add_executable(uv_user_interaction_tests
     uv_user_interaction_test.cpp
 )
@@ -138,6 +155,23 @@ target_link_libraries(uv_user_interaction_tests PRIVATE
 add_test(
     NAME uv_user_interaction
     COMMAND uv_user_interaction_tests
+)
+
+add_executable(uv_auth_handler_tests
+    uv_auth_handler_test.cpp
+)
+
+target_include_directories(uv_auth_handler_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+)
+
+target_link_libraries(uv_auth_handler_tests PRIVATE
+    uv
+)
+
+add_test(
+    NAME uv_auth_handler
+    COMMAND uv_auth_handler_tests
 )
 
 add_executable(dbus_agent_registry_tests

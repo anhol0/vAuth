@@ -1,4 +1,5 @@
 #include <cerrno>
+#include <chrono>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -9,6 +10,7 @@
 #include <system_error>
 
 #include <sys/signalfd.h>
+#include <systemd/sd-daemon.h>
 #include <unistd.h>
 
 #include "credentials/credential.hpp"
@@ -22,6 +24,8 @@
 #include "storage/authorization.hpp"
 #include "uv/src/auth.hpp"
 #include "uv/src/auth_handler.hpp"
+#include "uv/src/pam_verifier_service.hpp"
+#include "uv/src/verifier_client.hpp"
 
 namespace {
 
@@ -108,6 +112,23 @@ Options parse_options(int argc, char **argv) {
     return options;
 }
 
+int activated_verifier_socket() {
+    const int count = sd_listen_fds(1);
+    if(count < 0) {
+        throw std::system_error(
+            -count,
+            std::generic_category(),
+            "obtain PAM verifier socket"
+        );
+    }
+    if(count != 1) {
+        throw std::runtime_error(
+            "pam-verifier requires exactly one systemd socket"
+        );
+    }
+    return SD_LISTEN_FDS_START;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -116,6 +137,30 @@ int main(int argc, char **argv) {
     }
 
     try {
+        if(
+            argc == 2 &&
+            std::string_view(argv[1]) == vauth::uv::PAM_VERIFIER_COMMAND
+        ) {
+            if(geteuid() != 0) {
+                throw std::runtime_error(
+                    "pam-verifier must run with root privileges"
+                );
+            }
+#ifdef DEBUG
+            constexpr std::string_view pam_configuration =
+                VAUTH_DEBUG_PAM_CONFIG_DIR;
+#else
+            constexpr std::string_view pam_configuration =
+                "/etc/vauth/config";
+#endif
+            return vauth::uv::run_pam_verifier_service(
+                activated_verifier_socket(),
+                "vauth",
+                std::string(pam_configuration),
+                std::chrono::seconds(30)
+            );
+        }
+
         const Options options = parse_options(argc, argv);
         ShutdownSignal shutdown_signal;
 
@@ -133,13 +178,11 @@ int main(int argc, char **argv) {
         FIDODevice device;
         device.init();
         std::cout << "UHID device created\n";
-#ifdef DEBUG
-        PamUserInteraction user_interaction("vauth", VAUTH_DEBUG_PAM_CONFIG_DIR,
-                                            agent_service, agent_service);
-#else
-        PamUserInteraction user_interaction("vauth", "/etc/vauth/config",
-                                            agent_service, agent_service);
-#endif
+        PamUserInteraction user_interaction(
+            vauth::uv::PAM_VERIFIER_SOCKET_PATH,
+            agent_service,
+            agent_service
+        );
         run(device, store, key_provider, user_interaction,
             shutdown_signal.native_handle());
         return 0;

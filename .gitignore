@@ -4,7 +4,8 @@
 *.cbor
 .vscode/
 vauth_session
-build/
+build*/
 compile_commands.json
 .clang-format
 ROADMAP.md
+

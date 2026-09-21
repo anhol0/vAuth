@@ -27,9 +27,18 @@ target_include_directories(uv_process PUBLIC
 )
 target_link_libraries(uv_process PUBLIC uv_verifier_protocol)
 
+add_library(uv_verifier_client
+    ${SOURCE_DIR}/verifier_client.cpp
+)
+target_include_directories(uv_verifier_client PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(uv_verifier_client PUBLIC uv_verifier_protocol)
+
 add_library(${PN}
     ${SOURCE_DIR}/auth.cpp
     ${SOURCE_DIR}/auth_handler.cpp
+    ${SOURCE_DIR}/pam_verifier_service.cpp
 )
 target_include_directories(${PN} PRIVATE ${PAM_INCLUDE_DIRS})
 target_include_directories(uv PRIVATE
@@ -38,4 +47,5 @@ target_include_directories(uv PRIVATE
 target_link_libraries(${PN} PRIVATE
     ${PAM_LIBRARIES}
     uv_process
+    uv_verifier_client
 )

@@ -1,0 +1,14 @@
+[Unit]
+Description=Lamellix Labs vAuth PAM verifier socket
+Before=vauth.service
+
+[Socket]
+ListenSequentialPacket=/run/vauth-pam-verifier.sock
+Accept=yes
+SocketUser=root
+SocketGroup=vauth
+SocketMode=0660
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

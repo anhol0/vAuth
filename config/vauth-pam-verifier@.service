@@ -1,0 +1,17 @@
+[Unit]
+Description=Lamellix Labs vAuth PAM verifier
+Requires=vauth-pam-verifier.socket
+After=vauth-pam-verifier.socket
+
+[Service]
+Type=exec
+User=root
+Group=root
+ExecStart=/usr/local/libexec/vauth/vauth pam-verifier
+UMask=0077
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX
+KillMode=control-group
+TimeoutStopSec=3s
