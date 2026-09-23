@@ -243,13 +243,37 @@ int run_pam_verifier_service(
     const std::string& pam_configuration_directory,
     std::chrono::steady_clock::duration timeout
 ) {
+    VerifierSocket connection(socket_fd);
+    return run_pam_verifier_connection(
+        std::move(connection),
+        uid_for_username(VAUTH_DAEMON_ACCOUNT),
+        "/proc/self/exe",
+        pam_service,
+        pam_configuration_directory,
+        timeout,
+        [](const std::string& session_id) {
+            return vauth::query_login_session(session_id);
+        }
+    );
+}
+
+int run_pam_verifier_connection(
+    VerifierSocket connection,
+    uid_t expected_daemon_uid,
+    const std::string& verifier_program,
+    const std::string& pam_service,
+    const std::string& pam_configuration_directory,
+    std::chrono::steady_clock::duration timeout,
+    const LoginSessionQuery& query_session
+) {
     if(timeout <= std::chrono::steady_clock::duration::zero())
         throw std::invalid_argument("PAM verifier timeout must be positive");
+    if(!query_session)
+        throw std::invalid_argument("PAM verifier session query is missing");
 
-    VerifierSocket connection(socket_fd);
     authorize_verifier_peer(
         connection.peer_credentials(),
-        uid_for_username(VAUTH_DAEMON_ACCOUNT)
+        expected_daemon_uid
     );
     DaemonConversation daemon(std::move(connection));
     StartVerification start = daemon.receive_start();
@@ -257,7 +281,7 @@ int run_pam_verifier_service(
     try {
         authorize_verification_session(
             start,
-            vauth::query_login_session(start.sessionId)
+            query_session(start.sessionId)
         );
         username = username_for_uid(start.targetUid);
     } catch(...) {
@@ -267,7 +291,7 @@ int run_pam_verifier_service(
 
     try {
         VerificationResult result = run_cancellable_verifier_program(
-            "/proc/self/exe",
+            verifier_program,
             {
                 std::string(VAUTH_AUTH_HANDLER_COMMAND),
                 username,
@@ -292,7 +316,7 @@ int run_pam_verifier_service(
             try {
                 authorize_verification_session(
                     start,
-                    vauth::query_login_session(start.sessionId)
+                    query_session(start.sessionId)
                 );
             } catch(...) {
                 daemon.complete(VerificationResult::error);

@@ -5,6 +5,7 @@
 #include "verifier_socket.hpp"
 
 #include <chrono>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <sys/types.h>
@@ -22,6 +23,24 @@ void authorize_verifier_peer(
 void authorize_verification_session(
     const StartVerification& request,
     const vauth::LoginSessionProperties& session
+);
+
+using LoginSessionQuery = std::function<vauth::LoginSessionProperties(
+    const std::string& session_id
+)>;
+
+// Runs one daemon connection and authenticates its peer. Production supplies
+// the fixed daemon UID, logind query, and current executable; explicit
+// dependencies keep the broker lifecycle testable without root or a login
+// session.
+int run_pam_verifier_connection(
+    VerifierSocket connection,
+    uid_t expected_daemon_uid,
+    const std::string& verifier_program,
+    const std::string& pam_service,
+    const std::string& pam_configuration_directory,
+    std::chrono::steady_clock::duration timeout,
+    const LoginSessionQuery& query_session
 );
 
 int run_pam_verifier_service(

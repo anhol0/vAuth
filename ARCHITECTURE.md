@@ -190,6 +190,12 @@ The broker remains responsive while PAM blocks. It forwards status and secret
 messages, observes daemon cancellation or disconnect, terminates and reaps the
 worker, and enforces the overall deadline.
 
+Broker integration tests exercise cancellation during blocking and secret
+prompts, timeout, disconnect, malformed and out-of-order messages, callback
+failure, worker exit and reaping, and post-PAM session invalidation. An isolated
+test PAM module exercises the real PAM conversation callback without consulting
+host authentication policy or requiring privileged interaction.
+
 PAM results are interpreted as follows:
 
 | Result | Meaning inside vAuth | CTAP boundary |
@@ -430,9 +436,7 @@ under `/var/lib/vauth`.
 
 The target architecture requires the following remaining implementation work:
 
-1. Complete cancellation, disconnect, timeout, worker-reaping, and real PAM
-   conversation integration tests.
-2. Finalize and harden the installed socket/service units.
-3. Add the systemd-backed execution path for privileged `vauthctl` operations.
-4. Complete the installed daemon rename to `vauthd` and align packaging,
+1. Finalize and harden the installed socket/service units.
+2. Add the systemd-backed execution path for privileged `vauthctl` operations.
+3. Complete the installed daemon rename to `vauthd` and align packaging,
    service files, documentation, and tests.

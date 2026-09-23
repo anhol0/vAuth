@@ -191,6 +191,51 @@ add_test(
     COMMAND uv_verifier_authorization_tests
 )
 
+add_executable(uv_pam_verifier_broker_tests
+    uv_pam_verifier_broker_test.cpp
+)
+
+target_include_directories(uv_pam_verifier_broker_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+)
+
+target_link_libraries(uv_pam_verifier_broker_tests PRIVATE
+    uv
+)
+
+add_test(
+    NAME uv_pam_verifier_broker
+    COMMAND uv_pam_verifier_broker_tests
+)
+
+pkg_check_modules(TEST_PAM REQUIRED IMPORTED_TARGET pam)
+
+add_library(vauth_test_pam_module MODULE
+    uv_test_pam_module.cpp
+)
+
+target_link_libraries(vauth_test_pam_module PRIVATE
+    PkgConfig::TEST_PAM
+)
+
+add_executable(uv_pam_conversation_integration_tests
+    uv_pam_conversation_integration_test.cpp
+)
+
+target_include_directories(uv_pam_conversation_integration_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+)
+
+target_link_libraries(uv_pam_conversation_integration_tests PRIVATE
+    uv
+)
+
+add_test(
+    NAME uv_pam_conversation_integration
+    COMMAND uv_pam_conversation_integration_tests
+        $<TARGET_FILE:vauth_test_pam_module>
+)
+
 add_executable(dbus_agent_registry_tests
     dbus_agent_registry_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dbus/agent_registry.cpp
