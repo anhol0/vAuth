@@ -72,9 +72,8 @@ flowchart LR
     Systemd --> |socket activation| Broker
 ```
 
-The installed daemon executable is intended to be named `vauthd` and placed in
-a non-interactive system executable directory such as
-`/usr/libexec/vauth/vauthd`. The same executable has three internal modes:
+The installed daemon executable is named `vauthd`; its canonical packaged path
+is `/usr/libexec/vauth/vauthd`. The same executable has three internal modes:
 
 | Mode | Identity | Purpose |
 |---|---|---|
@@ -398,24 +397,118 @@ A future daemon management API could allow mutation while the daemon is
 running, but it would require privileged authorization and explicit store
 synchronization. It is intentionally outside the initial release architecture.
 
-## Filesystem and runtime ownership
+## Installed layout and ownership
+
+The following is the canonical packaged layout. Distribution builds may resolve
+the vendor `libexec`, systemd, sysusers, udev, and D-Bus directories through
+their build-system variables, but must preserve the same separation of
+executables, policy, configuration, and mutable state.
+
+```text
+/usr/
+├── bin/
+│   ├── vauthctl
+│   └── vauth-ui
+├── libexec/vauth/
+│   └── vauthd
+├── lib/systemd/system/
+│   ├── vauth.service
+│   ├── vauth-pam-verifier.socket
+│   └── vauth-pam-verifier@.service
+├── lib/sysusers.d/
+│   └── vauth.conf
+├── lib/udev/rules.d/
+│   └── 70-vauth.rules
+└── share/dbus-1/system.d/
+    └── org.lamellix.vAuth.conf
+
+/etc/
+├── vauth/config/
+│   └── vauth
+└── credstore.encrypted/
+    └── vauth-db-auth
+```
+
+The packaged files have the following roles:
+
+| Path | Ownership and mode | Role |
+|---|---|---|
+| `/usr/libexec/vauth/vauthd` | `root:root`, mode `0755` | Non-interactive daemon binary and its two internal verifier modes |
+| `/usr/bin/vauthctl` | `root:root`, mode `0755`, never setuid | Administrator-facing status and credential-management frontend |
+| `/usr/bin/vauth-ui` | `root:root`, mode `0755`, runs as the desktop user | Bundled interaction agent |
+| `/usr/lib/systemd/system/vauth.service` | `root:root`, mode `0644` | Long-running unprivileged authenticator unit |
+| `/usr/lib/systemd/system/vauth-pam-verifier.socket` | `root:root`, mode `0644` | Root-owned verifier activation socket definition |
+| `/usr/lib/systemd/system/vauth-pam-verifier@.service` | `root:root`, mode `0644` | One root broker instance per accepted connection |
+| `/usr/lib/sysusers.d/vauth.conf` | `root:root`, mode `0644` | Declares the non-login `vauth` system identity; packaging also grants the required TPM group membership |
+| `/usr/lib/udev/rules.d/70-vauth.rules` | `root:root`, mode `0644` | Grants the `vauth` identity access to `/dev/uhid`; systemd device policy remains an additional restriction |
+| `/usr/share/dbus-1/system.d/org.lamellix.vAuth.conf` | `root:root`, mode `0644` | Grants the daemon its well-known name and exposes only the documented agent/status methods |
+| `/etc/vauth/config/vauth` | root-managed, not writable by `vauth` | Isolated PAM policy selected by the root verifier |
+| `/etc/credstore.encrypted/vauth-db-auth` | `root:root`, mode `0600` | Encrypted systemd credential; never passed to vAuth as if it were plaintext |
+
+The debug console agent and test PAM module are development artifacts and are
+not installed by a production build. Starting the bundled UI automatically is
+a desktop-integration policy choice; the daemon does not start it and continues
+to fail closed when no eligible agent has registered.
+
+### Unit topology
+
+```mermaid
+flowchart LR
+    Manager[systemd system manager]
+    Credential[Encrypted vauth-db-auth]
+    DaemonUnit[vauth.service<br/>UID vauth]
+    Daemon[vauthd run]
+    Socket[vauth-pam-verifier.socket<br/>root:vauth 0660]
+    BrokerUnit[vauth-pam-verifier@.service<br/>UID root]
+    Broker[vauthd pam-verifier]
+    Worker[vauthd vauth_auth_handler]
+
+    Credential --> |LoadCredentialEncrypted| Manager
+    Manager --> |private runtime credential| DaemonUnit
+    DaemonUnit --> Daemon
+    Manager --> Socket
+    Daemon --> |one SOCK_SEQPACKET connection| Socket
+    Socket --> |Accept=yes; accepted descriptor| BrokerUnit
+    BrokerUnit --> Broker
+    Broker --> |private inherited socket| Worker
+```
+
+`vauth.service` is the only long-running system service that consumes the UHID,
+TPM, and credential-store resources, and it runs as the dedicated `vauth`
+account. The unit requires and is ordered after the verifier socket. The
+template verifier service is never enabled directly;
+systemd instantiates it for one accepted connection and it exits after that
+verification reaches a terminal state. The PAM worker is a child of that
+instance, not another independently managed service.
+
+The socket node is `/run/vauth-pam-verifier.sock`, owned by `root:vauth` with
+mode `0660`. Filesystem permission is only the first check: the broker also
+requires the kernel-reported peer UID to equal the dedicated `vauth` UID. No
+general `/run/vauth/` directory is required by this design.
+
+### Persistent and runtime state
 
 | Resource | Owner or consumer | Purpose |
 |---|---|---|
-| `/usr/libexec/vauth/vauthd` | root-owned executable | Daemon and internal verifier modes |
-| `/usr/bin/vauthctl` | root-owned executable, not setuid | Administration frontend |
-| `/usr/bin/vauth-ui` | desktop user process | Bundled interaction agent |
-| `/var/lib/vauth/` | `vauth:vauth`, mode `0700` | Credential store and its lock scope |
+| `/var/lib/vauth/` | `vauth:vauth`, mode `0700`, created by `StateDirectory=vauth` | Credential-store directory and the object locked with `flock` |
 | `/var/lib/vauth/credentials.v1` | `vauth:vauth`, mode `0600` | Authenticated encrypted credential database |
-| `/etc/credstore.encrypted/vauth-db-auth` | root-managed | Encrypted FAPI authorization credential |
-| `/run/credentials/<unit>/vauth-db-auth` | private to the active unit | Decrypted runtime authorization supplied by systemd |
-| `/run/vauth-pam-verifier.sock` | root-owned, group-restricted socket | Daemon-to-root-verifier transport |
-| `/dev/uhid` | accessible to `vauth` service only as required | Virtual HID device creation and reports |
-| `/dev/tpmrm0` | accessible to `vauth` service and managed admin operation | TPM resource-manager transport |
+| Temporary files in `/var/lib/vauth/` | `vauth:vauth`, mode `0600` | Same-directory durable store replacement; removed or renamed before completion |
+| `/run/credentials/<unit>/vauth-db-auth` | private to the active unit, managed by systemd | Decrypted authorization presented to the process through `CREDENTIALS_DIRECTORY` |
+| `/run/vauth-pam-verifier.sock` | `root:vauth`, mode `0660` | Daemon-to-root-verifier transport |
+| `/dev/uhid` | accessible only to `vauth` as required | Virtual HID device creation and reports |
+| `/dev/tpmrm0` | accessible to `vauth` and the managed administration operation | Preferred TPM resource-manager transport |
+| Configured FAPI system directory | writable only by its designated TPM2-TSS consumer | FAPI object metadata, including the sealed database key and NV-counter metadata |
 
-FAPI object storage is managed by TPM2-TSS according to its configured FAPI
-profile and directories; vAuth does not define a second private FAPI keystore
-under `/var/lib/vauth`.
+FAPI object storage remains managed by TPM2-TSS according to the selected FAPI
+configuration and its `system_dir`. vAuth does not assume or create a second
+keystore under `/var/lib/vauth`. The service sandbox must grant write access to
+the configured FAPI directory explicitly. `/dev/tpm0` is granted only on
+systems whose TPM2-TSS configuration cannot use `/dev/tpmrm0`.
+
+The daemon has no plaintext authorization-file override. It loads
+`vauth-db-auth` only from its systemd credential directory. Explicit
+mode-`0400` authorization files remain a `vauthctl` development and recovery
+mechanism and are never part of normal daemon startup.
 
 ## Failure and cancellation model
 
