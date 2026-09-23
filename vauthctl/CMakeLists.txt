@@ -1,3 +1,5 @@
+include(GNUInstallDirs)
+
 add_library(vauthctl_options
     src/options.cpp
 )
@@ -43,6 +45,11 @@ add_executable(vauthctl
 target_link_libraries(vauthctl PRIVATE
     vauthctl_application
     vauthctl_commands
+)
+
+install(
+    TARGETS vauthctl
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
 )
 
 if(BUILD_TESTING)

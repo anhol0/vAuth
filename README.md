@@ -25,7 +25,7 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-The resulting executables are `build/vauth` and `build/vauth-ui`. The
+The resulting executables are `build/vauthd` and `build/vauth-ui`. The
 software-TPM integration test is enabled when `swtpm` and the TPM2/FAPI
 command-line tools are installed.
 
@@ -135,13 +135,14 @@ sudo systemd-creds encrypt --name=vauth-db-auth - \
   /etc/credstore.encrypted/vauth-db-auth
 sudo systemd-run --wait --pipe --property=Type=oneshot \
   --property=LoadCredentialEncrypted=vauth-db-auth:/etc/credstore.encrypted/vauth-db-auth \
-  /usr/local/bin/vauthctl provision
+  /usr/bin/vauthctl provision
 ```
 
 Enter a non-empty authorization of at most 32 bytes when prompted. Keep recovery
 material separately: clearing the TPM or losing this authorization makes the
-database unrecoverable. The example service configuration is available at
-[`config/vauth.service.example`](config/vauth.service.example).
+database unrecoverable. The service template is available at
+[`config/vauth.service.in`](config/vauth.service.in) and is configured and
+installed by CMake.
 
 For local provisioning and recovery, `vauthctl` can read a protected
 mode-`0400` authorization file directly:

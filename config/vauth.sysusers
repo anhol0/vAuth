@@ -1,0 +1,3 @@
+# Type Name  ID GECOS          Home directory Shell
+u vauth     -  "vAuth daemon" /var/lib/vauth /usr/sbin/nologin
+m vauth     tss

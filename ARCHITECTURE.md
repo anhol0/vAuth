@@ -82,10 +82,8 @@ is `/usr/libexec/vauth/vauthd`. The same executable has three internal modes:
 | `vauth_auth_handler` | root, child of the broker | Runs the PAM conversation and reports its result |
 
 `vauth-ui` runs as the desktop user. `vauthctl` is a separate administration
-program. Neither should be installed setuid.
-
-The executable rename remains release work. The diagrams describe the intended
-final state.
+program. Neither is installed setuid. The build and install rules use these
+names and locations directly.
 
 ## Main daemon data path
 
@@ -529,7 +527,8 @@ mechanism and are never part of normal daemon startup.
 
 The target architecture requires the following remaining implementation work:
 
-1. Finalize and harden the installed socket/service units.
+1. Harden the installed socket/service units and grant only the configured FAPI
+   storage path the write access it requires.
 2. Add the systemd-backed execution path for privileged `vauthctl` operations.
-3. Complete the installed daemon rename to `vauthd` and align packaging,
-   service files, documentation, and tests.
+3. Complete desktop activation, distribution-package integration, recovery
+   documentation, and installed-system tests.

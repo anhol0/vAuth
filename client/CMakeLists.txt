@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(CTest)
+include(GNUInstallDirs)
 
 find_package(sdbus-c++ CONFIG REQUIRED)
 
@@ -58,6 +59,10 @@ if(VAUTH_BUILD_UI)
     )
     set_target_properties(vauth-ui PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    )
+    install(
+        TARGETS vauth-ui
+        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
     )
 endif()
 

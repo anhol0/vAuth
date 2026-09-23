@@ -1,6 +1,6 @@
 [Unit]
 Description=Lamellix Labs vAuth virtual authenticator
-Wants=vauth-pam-verifier.socket
+Requires=vauth-pam-verifier.socket
 After=systemd-udevd.service vauth-pam-verifier.socket
 
 [Service]
@@ -9,7 +9,7 @@ BusName=org.lamellix.vAuth
 User=vauth
 Group=vauth
 SupplementaryGroups=tss
-ExecStart=/usr/local/bin/vauth run
+ExecStart=@CMAKE_INSTALL_FULL_LIBEXECDIR@/vauth/vauthd run
 StateDirectory=vauth
 StateDirectoryMode=0700
 LoadCredentialEncrypted=vauth-db-auth:/etc/credstore.encrypted/vauth-db-auth
@@ -25,4 +25,3 @@ DeviceAllow=/dev/tpm0 rw
 
 [Install]
 WantedBy=multi-user.target
-

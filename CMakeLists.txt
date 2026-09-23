@@ -6,8 +6,57 @@ project(${PN} CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(SOURCE_DIR src)
+set(DAEMON_TARGET vauthd)
 
 include(CTest)
+include(GNUInstallDirs)
+
+set(
+    VAUTH_SYSTEMD_SYSTEM_UNIT_DIR
+    "lib/systemd/system"
+    CACHE PATH
+    "Directory for systemd system units"
+)
+set(
+    VAUTH_SYSUSERS_DIR
+    "lib/sysusers.d"
+    CACHE PATH
+    "Directory for systemd-sysusers declarations"
+)
+set(
+    VAUTH_UDEV_RULES_DIR
+    "lib/udev/rules.d"
+    CACHE PATH
+    "Directory for udev rules"
+)
+set(
+    VAUTH_DBUS_SYSTEM_POLICY_DIR
+    "${CMAKE_INSTALL_DATADIR}/dbus-1/system.d"
+    CACHE PATH
+    "Directory for system-bus policy files"
+)
+set(
+    VAUTH_PAM_CONFIG_DIR
+    "/etc/vauth/config"
+    CACHE PATH
+    "Absolute directory for the isolated vAuth PAM configuration"
+)
+
+if(NOT IS_ABSOLUTE "${VAUTH_PAM_CONFIG_DIR}")
+    message(FATAL_ERROR "VAUTH_PAM_CONFIG_DIR must be an absolute path")
+endif()
+
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(
+    config/vauth.service.in
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/vauth.service"
+    @ONLY
+)
+configure_file(
+    config/vauth-pam-verifier@.service.in
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/vauth-pam-verifier@.service"
+    @ONLY
+)
 
 add_subdirectory(${SOURCE_DIR}/uv)
 
@@ -98,7 +147,7 @@ target_link_libraries(vauth_storage PUBLIC
 )
 
 # vAuth main daemon
-add_executable(${PN}
+add_executable(${DAEMON_TARGET}
     # Uncategorized
     ${SOURCE_DIR}/${PN}.cpp
     ${SOURCE_DIR}/ctap_command_handler.cpp
@@ -120,13 +169,14 @@ add_executable(${PN}
     ${SOURCE_DIR}/cbor_operations/get_assertion_parsing.cpp
 )
 
-target_compile_definitions(${PN} PRIVATE
+target_compile_definitions(${DAEMON_TARGET} PRIVATE
     $<$<CONFIG:Debug>:DEBUG>
     $<$<CONFIG:Debug>:VAUTH_DEBUG_PAM_CONFIG_DIR="${PROJECT_SOURCE_DIR}/config">
+    VAUTH_INSTALLED_PAM_CONFIG_DIR="${VAUTH_PAM_CONFIG_DIR}"
 )
 
-target_include_directories(${PN} PRIVATE ${SOURCE_DIR})
-target_include_directories(${PN} PRIVATE
+target_include_directories(${DAEMON_TARGET} PRIVATE ${SOURCE_DIR})
+target_include_directories(${DAEMON_TARGET} PRIVATE
     ${TINYCBOR_INCLUDE_DIRS}
     ${OPENSSL_INCLUDE_DIRS}
     ${TSS2_ESYS_INCLUDE_DIRS}
@@ -134,7 +184,7 @@ target_include_directories(${PN} PRIVATE
     ${TSS2_RC_INCLUDE_DIRS}
     ${TSS2_MU_INCLUDE_DIRS}
 )
-target_link_libraries(${PN} PRIVATE
+target_link_libraries(${DAEMON_TARGET} PRIVATE
     ${TINYCBOR_LIBRARIES}
     ${OPENSSL_LIBRARIES}
     ${TSS2_ESYS_LIBRARIES}
@@ -147,6 +197,36 @@ target_link_libraries(${PN} PRIVATE
     vauth_log
     vauth_dbus
     uv
+)
+
+install(
+    TARGETS ${DAEMON_TARGET}
+    RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/vauth"
+)
+
+install(
+    FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/vauth.service"
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/vauth-pam-verifier@.service"
+        config/vauth-pam-verifier.socket
+    DESTINATION "${VAUTH_SYSTEMD_SYSTEM_UNIT_DIR}"
+)
+install(
+    FILES config/vauth.sysusers
+    DESTINATION "${VAUTH_SYSUSERS_DIR}"
+    RENAME vauth.conf
+)
+install(
+    FILES config/70-vauth.rules
+    DESTINATION "${VAUTH_UDEV_RULES_DIR}"
+)
+install(
+    FILES config/org.lamellix.vAuth.conf
+    DESTINATION "${VAUTH_DBUS_SYSTEM_POLICY_DIR}"
+)
+install(
+    FILES config/vauth
+    DESTINATION "${VAUTH_PAM_CONFIG_DIR}"
 )
 
 option(VAUTH_BUILD_UI "Build the Slint vAuth user-interaction agent" ON)

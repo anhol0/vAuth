@@ -288,8 +288,61 @@ add_test(
     NAME daemon_cli
     COMMAND bash
         ${CMAKE_CURRENT_SOURCE_DIR}/daemon_cli_test.sh
-        $<TARGET_FILE:vauth>
+        $<TARGET_FILE:vauthd>
 )
+
+add_test(
+    NAME install_layout
+    COMMAND bash
+        ${CMAKE_CURRENT_SOURCE_DIR}/install_layout_test.sh
+        ${CMAKE_COMMAND}
+        ${CMAKE_BINARY_DIR}
+        $<CONFIG>
+        ${CMAKE_INSTALL_PREFIX}
+        ${CMAKE_INSTALL_BINDIR}
+        ${CMAKE_INSTALL_LIBEXECDIR}
+        ${VAUTH_SYSTEMD_SYSTEM_UNIT_DIR}
+        ${VAUTH_SYSUSERS_DIR}
+        ${VAUTH_UDEV_RULES_DIR}
+        ${VAUTH_DBUS_SYSTEM_POLICY_DIR}
+        ${VAUTH_PAM_CONFIG_DIR}
+        ${VAUTH_BUILD_UI}
+        ${CMAKE_INSTALL_FULL_LIBEXECDIR}
+)
+
+find_program(SYSTEMD_ANALYZE_EXECUTABLE systemd-analyze)
+if(SYSTEMD_ANALYZE_EXECUTABLE)
+    add_test(
+        NAME systemd_units
+        COMMAND bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/systemd_units_test.sh
+            ${SYSTEMD_ANALYZE_EXECUTABLE}
+            ${CMAKE_BINARY_DIR}/generated/vauth.service
+            ${CMAKE_BINARY_DIR}/generated/vauth-pam-verifier@.service
+            ${PROJECT_SOURCE_DIR}/config/vauth-pam-verifier.socket
+    )
+endif()
+
+find_program(SYSTEMD_SYSUSERS_EXECUTABLE systemd-sysusers)
+if(SYSTEMD_SYSUSERS_EXECUTABLE)
+    add_test(
+        NAME sysusers_config
+        COMMAND bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/sysusers_test.sh
+            ${SYSTEMD_SYSUSERS_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/config/vauth.sysusers
+    )
+endif()
+
+find_program(UDEVADM_EXECUTABLE udevadm)
+if(UDEVADM_EXECUTABLE)
+    add_test(
+        NAME udev_rules
+        COMMAND ${UDEVADM_EXECUTABLE}
+            verify
+            ${PROJECT_SOURCE_DIR}/config/70-vauth.rules
+    )
+endif()
 
 add_executable(log_tests
     log_test.cpp

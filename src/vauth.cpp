@@ -133,7 +133,7 @@ int main(int argc, char **argv) {
                 VAUTH_DEBUG_PAM_CONFIG_DIR;
 #else
             constexpr std::string_view pam_configuration =
-                "/etc/vauth/config";
+                VAUTH_INSTALLED_PAM_CONFIG_DIR;
 #endif
             return vauth::uv::run_pam_verifier_service(
                 activated_verifier_socket(),
