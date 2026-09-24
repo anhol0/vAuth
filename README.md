@@ -22,7 +22,7 @@ optional; password verification remains available through PAM.
 - TPM2-TSS FAPI configured and provisioned
 - A local graphical login session running `vauth-ui`, or a compatible custom
   [interaction agent](docs/agent-api.md)
-- Administrator access for installation and initial provisioning
+- Root access for installation and initial provisioning
 
 vAuth deliberately has no non-TPM fallback. A fingerprint reader and `fprintd`
 are optional.
@@ -37,9 +37,9 @@ available. Until then, build vAuth from source.
 
 ### Build from source
 
-The build needs CMake 3.21+, Ninja, pkg-config, a C++20 compiler, CLI11,
-TinyCBOR, OpenSSL, TPM2-TSS, PAM, sdbus-c++, libsystemd, rlottie, and the Slint
-C++ SDK.
+The build needs CMake 3.21+, pkg-config, a C++20 compiler, CLI11,
+nlohmann/json, TinyCBOR, OpenSSL, TPM2-TSS, PAM, sdbus-c++, libsystemd,
+rlottie, and the Slint C++ SDK.
 
 Install the distro-provided dependencies:
 
@@ -47,16 +47,17 @@ Install the distro-provided dependencies:
 
 ```sh
 sudo apt install build-essential cmake ninja-build pkg-config git \
-  libcli11-dev libtinycbor-dev libssl-dev libtss2-dev tpm2-tools \
-  libpam0g-dev libsdbus-c++-dev libsystemd-dev librlottie-dev
+  libcli11-dev nlohmann-json3-dev libtinycbor-dev libssl-dev \
+  libtss2-dev tpm2-tools libpam0g-dev libsdbus-c++-dev \
+  libsystemd-dev librlottie-dev
 ```
 
 **Fedora**
 
 ```sh
 sudo dnf install gcc-c++ cmake ninja-build pkgconf-pkg-config git \
-  cli11-devel openssl-devel tpm2-tss-devel tpm2-tools pam-devel \
-  sdbus-cpp-devel systemd-devel rlottie-devel
+  cli11-devel json-devel openssl-devel tpm2-tss-devel tpm2-tools \
+  pam-devel sdbus-cpp-devel systemd-devel rlottie-devel
 ```
 
 Fedora does not currently package TinyCBOR; install it from
@@ -65,8 +66,8 @@ Fedora does not currently package TinyCBOR; install it from
 **Arch Linux**
 
 ```sh
-sudo pacman -S --needed base-devel cmake ninja pkgconf git cli11 openssl \
-  tpm2-tss tpm2-tools pam sdbus-cpp systemd
+sudo pacman -S --needed base-devel cmake ninja pkgconf git cli11 \
+  nlohmann-json openssl tpm2-tss tpm2-tools pam sdbus-cpp systemd
 ```
 
 TinyCBOR and rlottie must currently be installed from upstream or a reviewed
@@ -124,16 +125,9 @@ vauth-ui
 vauthctl status
 ```
 
-If you want to start the `vauth-ui` at the GUI session startup, add
-it to the window manager/wayland compositor/desktop environment
-configuration
-
-For example for Sway add:
-```sh
-exec vauth-ui&
-```
-to the `/path/to/sway/config` file
-
+vAuth does not install an autostart entry for `vauth-ui`. Configure it to start
+with the graphical session only if that matches your desktop environment or
+window-manager setup.
 
 ## Learn more
 
@@ -142,6 +136,7 @@ boundaries, TPM key hierarchy, encrypted storage, PAM verifier, D-Bus trust
 model, and protocol flow.
 
 Custom UI authors can use the documented [agent API](docs/agent-api.md) and
-[examples](examples/agents/). vAuth is licensed under the terms in
+[examples](examples/agents/). Distribution maintainers should follow the
+[packaging policy](docs/packaging.md). vAuth is licensed under the terms in
 [LICENSE](LICENSE). Library acknowledgements and license information are in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

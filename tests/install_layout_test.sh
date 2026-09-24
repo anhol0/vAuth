@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 13 ]]; then
+if [[ $# -ne 14 ]]; then
     echo "install_layout_test.sh received an unexpected argument count" >&2
     exit 2
 fi
@@ -19,6 +19,7 @@ dbus_policy_dir=${10}
 pam_config_dir=${11}
 install_ui=${12}
 full_libexecdir=${13}
+docdir=${14}
 
 staging_directory=$(mktemp -d /tmp/vauth-install-layout-test.XXXXXX)
 cleanup() {
@@ -48,6 +49,8 @@ sysusers=$(staged_path "$sysusers_dir/vauth.conf")
 udev_rule=$(staged_path "$udev_rules_dir/70-vauth.rules")
 dbus_policy=$(staged_path "$dbus_policy_dir/org.lamellix.vAuth.conf")
 pam_policy=$(staged_path "$pam_config_dir/vauth")
+project_license=$(staged_path "$docdir/LICENSE")
+third_party_notices=$(staged_path "$docdir/THIRD_PARTY_NOTICES.md")
 
 for executable in "$daemon" "$control"; do
     [[ -x $executable ]]
@@ -68,7 +71,9 @@ for policy in \
     "$sysusers" \
     "$udev_rule" \
     "$dbus_policy" \
-    "$pam_policy"; do
+    "$pam_policy" \
+    "$project_license" \
+    "$third_party_notices"; do
     [[ -f $policy ]]
     [[ $(stat -c '%a' "$policy") == 644 ]]
 done

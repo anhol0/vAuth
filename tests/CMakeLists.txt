@@ -331,6 +331,7 @@ add_test(
         ${VAUTH_PAM_CONFIG_DIR}
         ${VAUTH_BUILD_UI}
         ${CMAKE_INSTALL_FULL_LIBEXECDIR}
+        ${CMAKE_INSTALL_DOCDIR}
 )
 
 find_program(SYSTEMD_ANALYZE_EXECUTABLE systemd-analyze)

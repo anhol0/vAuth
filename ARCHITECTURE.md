@@ -444,9 +444,14 @@ The packaged files have the following roles:
 | `/etc/credstore.encrypted/vauth-db-auth` | `root:root`, mode `0600` | Encrypted systemd credential; never passed to vAuth as if it were plaintext |
 
 The debug console agent and test PAM module are development artifacts and are
-not installed by a production build. Starting the bundled UI automatically is
-a desktop-integration policy choice; the daemon does not start it and continues
-to fail closed when no eligible agent has registered.
+not installed by a production build. The package does not start the bundled UI
+or install session-autostart integration. The desktop user decides how to start
+an interaction agent; the daemon continues to fail closed when no eligible
+agent has registered.
+
+The package lifecycle, unit enablement, upgrade, and removal rules are defined
+in [docs/packaging.md](docs/packaging.md). In particular, installation neither
+starts the system units nor provisions security state.
 
 ### Unit topology
 
@@ -537,6 +542,6 @@ load `vauth-db-auth` only from their systemd credential directories.
 The target architecture requires the following remaining implementation work:
 
 1. Exercise the hardened units as installed services with every supported PAM
-   module and finalize socket activation limits and package presets.
-2. Complete desktop activation, distribution-package integration, recovery
-   documentation, and installed-system tests.
+   module and finalize socket activation limits.
+2. Complete distribution-package integration, recovery documentation, and
+   installed-system tests.

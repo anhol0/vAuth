@@ -72,6 +72,7 @@ add_subdirectory(${SOURCE_DIR}/uv)
 find_package(PkgConfig REQUIRED)
 find_package(sdbus-c++ CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 pkg_check_modules(SYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
 pkg_check_modules(TINYCBOR REQUIRED tinycbor)
 pkg_check_modules(OPENSSL REQUIRED openssl)
@@ -151,6 +152,7 @@ target_include_directories(vauth_storage PUBLIC
 )
 
 target_link_libraries(vauth_storage PUBLIC
+    nlohmann_json::nlohmann_json
     ${TSS2_FAPI_LIBRARIES}
     ${TSS2_RC_LIBRARIES}
     vauth_crypto
@@ -237,6 +239,12 @@ install(
 install(
     FILES config/vauth
     DESTINATION "${VAUTH_PAM_CONFIG_DIR}"
+)
+install(
+    FILES
+        LICENSE
+        THIRD_PARTY_NOTICES.md
+    DESTINATION "${CMAKE_INSTALL_DOCDIR}"
 )
 
 option(VAUTH_BUILD_UI "Build the Slint vAuth user-interaction agent" ON)
