@@ -1,163 +1,147 @@
 # vAuth
 
-vAuth is a Lamellix Labs virtual FIDO2 authenticator for Linux. It exposes a
-virtual security key through `/dev/uhid`, implements selected CTAP2 operations,
-uses PAM for user verification, and keeps credential records in an
-AES-256-GCM-encrypted database. Database security material and credential keys
-are protected by the system TPM.
+[![Built with Slint](https://img.shields.io/badge/Built%20with-Slint-2379F4?logo=slint&logoColor=white)](https://slint.dev/)
 
-The credential database is stored at `/var/lib/vauth/credentials.v1`. vAuth
-supports resident and non-resident credentials, user presence and verification,
-self-attestation, and TPM-backed assertion signing.
+vAuth turns a TPM-equipped Linux computer into a virtual FIDO2 authenticator.
+Browsers see a security key, while passkeys stay on the computer and sensitive
+operations are confirmed through a small desktop interface.
 
-The complete target process, privilege, key, persistence, and administration
-design is documented in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+It is useful when you want machine-bound passkeys without carrying a separate
+USB authenticator. vAuth uses the TPM for credential keys, PAM for user
+verification, and an encrypted local credential store. A fingerprint reader is
+optional; password verification remains available through PAM.
 
-## Build and test
+> [!IMPORTANT]
+> vAuth is pre-release software. Distribution packages and automated first-run
+> setup are still in progress.
 
-The build requires CMake, a C++20 compiler, pkg-config, TinyCBOR, OpenSSL,
-TPM2-TSS ESAPI/FAPI/RC/MU, PAM, sdbus-c++, libsystemd, Slint, and rlottie
-development files.
+## Requirements
+
+- Linux with systemd, logind, D-Bus, PAM, and UHID support (`/dev/uhid`)
+- A TPM 2.0 exposed through the kernel resource manager (`/dev/tpmrm0`)
+- TPM2-TSS FAPI configured and provisioned
+- A local graphical login session running `vauth-ui`, or a compatible custom
+  [interaction agent](docs/agent-api.md)
+- Administrator access for installation and initial provisioning
+
+vAuth deliberately has no non-TPM fallback. A fingerprint reader and `fprintd`
+are optional.
+
+## Installation
+
+### Distribution packages
+
+Packages for Debian/Ubuntu, Fedora, and Arch Linux are planned but not published
+yet. This section will contain the supported repository commands when they are
+available. Until then, build vAuth from source.
+
+### Build from source
+
+The build needs CMake 3.21+, Ninja, pkg-config, a C++20 compiler, CLI11,
+TinyCBOR, OpenSSL, TPM2-TSS, PAM, sdbus-c++, libsystemd, rlottie, and the Slint
+C++ SDK.
+
+Install the distro-provided dependencies:
+
+**Debian 13 / Ubuntu 26.04 or newer**
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure
+sudo apt install build-essential cmake ninja-build pkg-config git \
+  libcli11-dev libtinycbor-dev libssl-dev libtss2-dev tpm2-tools \
+  libpam0g-dev libsdbus-c++-dev libsystemd-dev librlottie-dev
 ```
 
-The packaged service grants write access only to the configured TPM2-TSS FAPI
-system directory. If its `system_dir` is not
-`/var/lib/tpm2-tss/system/keystore`, pass the matching absolute path when
-configuring the build:
+**Fedora**
+
+```sh
+sudo dnf install gcc-c++ cmake ninja-build pkgconf-pkg-config git \
+  cli11-devel openssl-devel tpm2-tss-devel tpm2-tools pam-devel \
+  sdbus-cpp-devel systemd-devel rlottie-devel
+```
+
+Fedora does not currently package TinyCBOR; install it from
+[upstream](https://github.com/intel/tinycbor) before configuring vAuth.
+
+**Arch Linux**
+
+```sh
+sudo pacman -S --needed base-devel cmake ninja pkgconf git cli11 openssl \
+  tpm2-tss tpm2-tools pam sdbus-cpp systemd
+```
+
+TinyCBOR and rlottie must currently be installed from upstream or a reviewed
+PKGBUILD on Arch.
+
+Install the Slint C++ SDK using its
+[official binary-package or source instructions](https://docs.slint.dev/latest/docs/cpp/cmake/).
+When using the prebuilt SDK, add its extracted directory to
+`CMAKE_PREFIX_PATH` and its `lib` directory to `LD_LIBRARY_PATH`.
+
+Configure, build, test, and install:
 
 ```sh
 cmake -S . -B build \
-  -DVAUTH_FAPI_SYSTEM_DIR=/configured/fapi/system/keystore
-```
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+sudo cmake --install build
 
-The resulting executables are `build/vauthd` and `build/vauth-ui`. The
-software-TPM integration test is enabled when `swtpm` and the TPM2/FAPI
-command-line tools are installed.
-
-The unprivileged UI can also be built independently:
-
-```sh
-cmake -S client -B client/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-cmake --build client/build --parallel
-```
-
-Before running the daemon as the `vauth` service user, install the system-bus
-policy and reload the bus configuration:
-
-```sh
-sudo install -m 0644 config/org.lamellix.vAuth.conf \
-  /etc/dbus-1/system.d/org.lamellix.vAuth.conf
+sudo systemd-sysusers /usr/lib/sysusers.d/vauth.conf
+sudo udevadm control --reload-rules
+sudo systemctl daemon-reload
 sudo busctl call org.freedesktop.DBus /org/freedesktop/DBus \
   org.freedesktop.DBus ReloadConfig
 ```
 
-Run `./build/vauth-ui` as the desktop user before starting a WebAuthn ceremony.
-It registers once with the daemon, remains resident, and opens its Slint window
-only when presence or verification is required. Without an active registered
-agent, vAuth rejects operations that require user interaction; it never falls
-back to daemon stdin or a local dialog. Passwords are submitted through a
-bounded one-shot Unix pipe rather than as D-Bus string values.
+If TPM2-TSS uses a different FAPI system directory, configure the matching path
+with `-DVAUTH_FAPI_SYSTEM_DIR=/absolute/path`.
 
-Debug builds also produce `build/vauth-agent-debug`, which provides the same
-D-Bus responses through a console interface for diagnostics. Run only one UI
-agent at a time.
+## First setup
 
-## Custom user-interaction agents
-
-The bundled Slint UI is not the only supported user-interaction agent. Local
-applications may implement the public system-bus interface
-`org.lamellix.vAuth.UserInteraction1` at `/org/lamellix/vAuth` on the
-`org.lamellix.vAuth` service. The interface is versioned; agents must use the
-method and signal signatures for the advertised interface name rather than
-assuming that a future version is compatible.
-
-The complete wire protocol, state machine, error behavior, and security
-requirements are documented in [`docs/agent-api.md`](docs/agent-api.md). A
-machine-readable introspection definition is available at
-[`docs/org.lamellix.vAuth.UserInteraction1.xml`](docs/org.lamellix.vAuth.UserInteraction1.xml),
-and minimal C++, Python, and Go implementations are in
-[`examples/agents/`](examples/agents/).
-
-Call `RegisterAgent()` once on a D-Bus connection before handling interactions.
-It returns a nonzero `generation`. The daemon sends that connection targeted
-`StateChanged(generation, requestId, promptId, state, operation,
-relyingPartyId, message)` signals.
-Reply with `RespondToPresence(generation, requestId, approved)`,
-`SubmitSecret(generation, requestId, promptId, secretPipe)`, or
-`CancelInteraction(generation, requestId)` as appropriate. `UnregisterAgent()`
-has no arguments. Each request ID is nonzero and one-shot; an agent must ignore
-events for another generation or for a request that has already reached a
-terminal state.
-
-Verification secrets must be written to a newly created one-shot Unix pipe and
-submitted as its read descriptor. They must be at most 1024 bytes, must not
-contain NUL, and must be erased from UI and application buffers immediately
-after submission. An agent must not send secrets in D-Bus strings, run PAM
-itself, claim that verification succeeded, or retain authentication input.
-Custom graphical agents should run unprivileged and disable core dumps just as
-the bundled UI does.
-
-### Agent trust model
-
-The API is intentionally open to custom agents. The daemon authenticates the
-caller's D-Bus unique name, effective UID, and PID, and requires an active,
-local, non-remote logind session. It does not authenticate the executable as the
-bundled vAuth UI. Exactly one agent is registered globally: the first eligible
-caller remains the agent until it unregisters, disconnects, or its session stops
-being active. A new registration receives a new generation and invalidates the
-old interaction context.
-
-This means every process in an eligible login session is inside the interaction-
-agent trust boundary. A hostile process could register before the intended UI,
-approve or deny presence requests, suppress the real UI, or present a deceptive
-secret prompt. Users should run only trusted custom agents, and deployments
-that do not accept this same-session threat model must restrict registration
-with a narrower D-Bus policy or an additional authorization mechanism. The
-current single-agent design is intended for single-seat use; multi-seat systems
-need additional device-to-session routing before they can safely serve more than
-one simultaneously active local session.
-
-## Provision database security objects
-
-TPM2-TSS FAPI must be provisioned once for the system. Skip the first command if
-`tss2_provision` has already completed successfully:
+Provision TPM2-TSS FAPI once, then create vAuth's encrypted authorization
+credential and TPM objects:
 
 ```sh
 sudo tss2_provision
+sudo install -d -m 0700 /etc/credstore.encrypted
+systemd-ask-password "Choose a vAuth recovery secret:" | \
+  sudo systemd-creds encrypt --name=vauth-db-auth - \
+  /etc/credstore.encrypted/vauth-db-auth
+
+sudo systemctl stop vauth.service
+sudo vauthctl provision
+sudo systemctl enable --now vauth-pam-verifier.socket vauth.service
 ```
 
-vAuth provisioning creates an authorized sealed database key at
-`/HS/SRK/vauth-database-key` and an authorized rollback counter at
-`/nv/Owner/vauth-db-generation`. Normal startup never creates or replaces these
-objects.
+Keep the authorization secret somewhere safe. Losing it—or clearing the
+TPM—makes existing vAuth credentials unrecoverable.
 
-Create an encrypted systemd credential, stop the daemon so the management
-operation can acquire the credential-store lock, and provision vAuth:
+Start `vauth-ui` in the desktop session and check the installation:
 
 ```sh
-sudo install -d -m 0700 /etc/credstore.encrypted
-sudo systemd-creds encrypt --name=vauth-db-auth - \
-  /etc/credstore.encrypted/vauth-db-auth
-sudo systemctl stop vauth.service
-sudo /usr/bin/vauthctl provision
+vauth-ui
+vauthctl status
 ```
 
-Enter a non-empty authorization of at most 32 bytes when prompted. Keep recovery
-material separately: clearing the TPM or losing this authorization makes the
-database unrecoverable. The service template is available at
-[`config/vauth.service.in`](config/vauth.service.in) and is configured and
-installed by CMake.
+If you want to start the `vauth-ui` at the GUI session startup, add
+it to the window manager/wayland compositor/desktop environment
+configuration
 
-`vauthctl` starts privileged operations as hardened transient systemd services
-under the `vauth` identity. The daemon and utility do not accept plaintext
-authorization-file overrides; both receive `vauth-db-auth` only through
-systemd's credential directory.
+For example for Sway add:
+```sh
+exec vauth-ui&
+```
+to the `/path/to/sway/config` file
 
-Provisioning generates the database key and rollback counter. The transient TPM
-parent is recreated when vAuth starts, and individual credential keys are
-created when passkeys are registered.
+
+## Learn more
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the process model, privilege
+boundaries, TPM key hierarchy, encrypted storage, PAM verifier, D-Bus trust
+model, and protocol flow.
+
+Custom UI authors can use the documented [agent API](docs/agent-api.md) and
+[examples](examples/agents/). vAuth is licensed under the terms in
+[LICENSE](LICENSE). Library acknowledgements and license information are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
