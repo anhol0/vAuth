@@ -252,6 +252,29 @@ add_test(
     COMMAND dbus_agent_registry_tests
 )
 
+find_program(DBUS_DAEMON_EXECUTABLE dbus-daemon)
+if(DBUS_DAEMON_EXECUTABLE)
+    add_executable(dbus_peer_credentials_tests
+        dbus_peer_credentials_test.cpp
+    )
+
+    target_include_directories(dbus_peer_credentials_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src
+    )
+
+    target_link_libraries(dbus_peer_credentials_tests PRIVATE
+        vauth_dbus
+    )
+
+    add_test(
+        NAME dbus_peer_credentials
+        COMMAND bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/private_dbus_test.sh
+            $<TARGET_FILE:dbus_peer_credentials_tests>
+            ${DBUS_DAEMON_EXECUTABLE}
+    )
+endif()
+
 add_executable(crypto_tests
     crypto_test.cpp
 )
@@ -320,6 +343,7 @@ if(SYSTEMD_ANALYZE_EXECUTABLE)
             ${CMAKE_BINARY_DIR}/generated/vauth.service
             ${CMAKE_BINARY_DIR}/generated/vauth-pam-verifier@.service
             ${PROJECT_SOURCE_DIR}/config/vauth-pam-verifier.socket
+            ${VAUTH_FAPI_SYSTEM_DIR}
     )
 endif()
 

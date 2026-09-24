@@ -25,6 +25,16 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
+The packaged service grants write access only to the configured TPM2-TSS FAPI
+system directory. If its `system_dir` is not
+`/var/lib/tpm2-tss/system/keystore`, pass the matching absolute path when
+configuring the build:
+
+```sh
+cmake -S . -B build \
+  -DVAUTH_FAPI_SYSTEM_DIR=/configured/fapi/system/keystore
+```
+
 The resulting executables are `build/vauthd` and `build/vauth-ui`. The
 software-TPM integration test is enabled when `swtpm` and the TPM2/FAPI
 command-line tools are installed.
@@ -95,7 +105,7 @@ the bundled UI does.
 ### Agent trust model
 
 The API is intentionally open to custom agents. The daemon authenticates the
-caller's D-Bus unique name, operating-system UID and PID, and requires an active,
+caller's D-Bus unique name, effective UID, and PID, and requires an active,
 local, non-remote logind session. It does not authenticate the executable as the
 bundled vAuth UI. Exactly one agent is registered globally: the first eligible
 caller remains the agent until it unregisters, disconnects, or its session stops

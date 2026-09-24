@@ -41,9 +41,18 @@ set(
     CACHE PATH
     "Absolute directory for the isolated vAuth PAM configuration"
 )
+set(
+    VAUTH_FAPI_SYSTEM_DIR
+    "/var/lib/tpm2-tss/system/keystore"
+    CACHE PATH
+    "Absolute FAPI system directory writable by the vAuth daemon"
+)
 
 if(NOT IS_ABSOLUTE "${VAUTH_PAM_CONFIG_DIR}")
     message(FATAL_ERROR "VAUTH_PAM_CONFIG_DIR must be an absolute path")
+endif()
+if(NOT IS_ABSOLUTE "${VAUTH_FAPI_SYSTEM_DIR}")
+    message(FATAL_ERROR "VAUTH_FAPI_SYSTEM_DIR must be an absolute path")
 endif()
 
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -89,6 +98,7 @@ add_library(vauth_dbus
     ${SOURCE_DIR}/dbus/agent_registry.cpp
     ${SOURCE_DIR}/dbus/agent_service.cpp
     ${SOURCE_DIR}/dbus/interaction_registry.cpp
+    ${SOURCE_DIR}/dbus/peer_credentials.cpp
     ${SOURCE_DIR}/dbus/secret_pipe.cpp
 )
 target_include_directories(vauth_dbus PUBLIC ${SOURCE_DIR})

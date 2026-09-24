@@ -207,10 +207,11 @@ must never include authentication secrets.
 
 ## Interaction-agent trust boundary
 
-The D-Bus service derives an agent's unique bus name, PID, UID, account name,
-and login session from authenticated operating-system data. Registration is
-limited to an active, local, non-remote logind session. One agent is registered
-globally, and its bus name plus generation bind every request and response.
+The D-Bus service derives an agent's unique bus name, PID, effective UID,
+account name, and login session from authenticated operating-system data.
+Registration is limited to an active, local, non-remote logind session. One
+agent is registered globally, and its bus name plus generation bind every
+request and response.
 
 The API intentionally permits custom agents. Consequently, every process able
 to register from an eligible login session is inside the documented interaction
@@ -499,9 +500,20 @@ general `/run/vauth/` directory is required by this design.
 
 FAPI object storage remains managed by TPM2-TSS according to the selected FAPI
 configuration and its `system_dir`. vAuth does not assume or create a second
-keystore under `/var/lib/vauth`. The service sandbox must grant write access to
-the configured FAPI directory explicitly. `/dev/tpm0` is granted only on
-systems whose TPM2-TSS configuration cannot use `/dev/tpmrm0`.
+keystore under `/var/lib/vauth`. `VAUTH_FAPI_SYSTEM_DIR` must match that
+configuration at package time; the generated service grants only that path
+write access through `ReadWritePaths=`. The default unit grants access to
+`/dev/tpmrm0`, not the raw `/dev/tpm0`. Systems that genuinely require the raw
+device must add it as an explicit local unit override.
+
+Both daemon modes have empty capability and ambient-capability sets, no IP
+network namespace, an AF_UNIX-only socket policy, restricted `/proc`, kernel
+and namespace protections, a closed device policy, and a conservative syscall
+deny list. The root verifier additionally cannot access the credential store,
+encrypted credential source, or FAPI store and is bounded by task and runtime
+limits. A PAM module that directly requires a hardware device needs a narrowly
+scoped `DeviceAllow=` override; brokered devices such as `fprintd` require no
+such access.
 
 The daemon has no plaintext authorization-file override. It loads
 `vauth-db-auth` only from its systemd credential directory. Explicit
@@ -527,8 +539,8 @@ mechanism and are never part of normal daemon startup.
 
 The target architecture requires the following remaining implementation work:
 
-1. Harden the installed socket/service units and grant only the configured FAPI
-   storage path the write access it requires.
+1. Exercise the hardened units as installed services with every supported PAM
+   module and finalize socket activation limits and package presets.
 2. Add the systemd-backed execution path for privileged `vauthctl` operations.
 3. Complete desktop activation, distribution-package integration, recovery
    documentation, and installed-system tests.

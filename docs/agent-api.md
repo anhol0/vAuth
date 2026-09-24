@@ -35,8 +35,9 @@ Communication is asymmetric:
 
 Register once on the connection that will receive signals and send replies. A
 successful call returns a nonzero generation. The daemon derives the caller's
-unique bus name, PID, UID, account name, and login session from authenticated
-operating-system and D-Bus data; the agent supplies none of them.
+unique bus name, PID, effective UID, account name, and login session from
+authenticated operating-system and D-Bus data; the agent supplies none of
+them.
 
 Registration succeeds only for an active, local, non-remote logind session.
 There is one agent globally. The first eligible caller remains registered until

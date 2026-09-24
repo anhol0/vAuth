@@ -14,14 +14,45 @@ StateDirectory=vauth
 StateDirectoryMode=0700
 LoadCredentialEncrypted=vauth-db-auth:/etc/credstore.encrypted/vauth-db-auth
 UMask=0077
+
 NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
 PrivateTmp=yes
+PrivateNetwork=yes
+PrivateIPC=yes
 ProtectHome=yes
 ProtectSystem=strict
+ReadWritePaths=@VAUTH_FAPI_SYSTEM_DIR@
+InaccessiblePaths=/etc/credstore.encrypted
+
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectProc=invisible
+ProcSubset=pid
+
 DevicePolicy=closed
 DeviceAllow=/dev/uhid rw
 DeviceAllow=/dev/tpmrm0 rw
-DeviceAllow=/dev/tpm0 rw
+
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @raw-io @reboot @swap
+SystemCallErrorNumber=EPERM
+
+KeyringMode=private
+RemoveIPC=yes
+LimitCORE=0
 
 [Install]
 WantedBy=multi-user.target
