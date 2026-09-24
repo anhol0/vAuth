@@ -5,18 +5,16 @@
 #include "constants.hpp"
 #include "interaction_registry.hpp"
 #include "log.hpp"
+#include "peer_credentials.hpp"
 #include "secret_pipe.hpp"
 #include "session_validation.hpp"
 
 #include <sdbus-c++/sdbus-c++.h>
-#include <systemd/sd-login.h>
-
 #include <algorithm>
 #include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
-#include <cstdlib>
 #include <deque>
 #include <exception>
 #include <iostream>
@@ -75,31 +73,6 @@ private:
     int fd_;
 };
 
-using CAllocatedString = std::unique_ptr<char, decltype(&std::free)>;
-
-[[noreturn]] void throw_login_error(int result, const char* operation) {
-    throw std::system_error(
-        -result,
-        std::generic_category(),
-        operation
-    );
-}
-
-CAllocatedString session_for_peer(pid_t pid, uid_t uid) {
-    char* raw_session = nullptr;
-    int result = sd_pid_get_session(pid, &raw_session);
-    if(result < 0) {
-        // When no local user session is installed - reject the connection
-        // Remote sessions cannot be trusted
-        throw_login_error(result, "resolve agent login session");
-    }
-    if(raw_session == nullptr || raw_session[0] == '\0') {
-        std::free(raw_session);
-        throw std::runtime_error("Agent login session is empty");
-    }
-    return CAllocatedString(raw_session, &std::free);
-}
-
 std::string username_for_uid(uid_t uid) {
     long requested_size = sysconf(_SC_GETPW_R_SIZE_MAX);
     std::size_t buffer_size = requested_size > 0
@@ -137,25 +110,25 @@ std::string username_for_uid(uid_t uid) {
     }
 }
 
-AgentPeer resolve_peer(const sdbus::MethodCall& call) {
-    const char* sender = call.getSender();
-    if(sender == nullptr || sender[0] != ':')
-        throw std::runtime_error("Agent has no authenticated unique bus name");
-
-    const uid_t uid = call.getCredsUid();
-    const pid_t pid = call.getCredsPid();
-    if(pid <= 0)
-        throw std::runtime_error("Agent has no authenticated process ID");
+AgentPeer resolve_peer(
+    sdbus::IConnection& connection,
+    const sdbus::MethodCall& call
+) {
+    AuthenticatedBusPeer authenticated = authenticate_bus_peer(call);
+    const uid_t uid = authenticated.effectiveUid;
     if(static_cast<uintmax_t>(uid) > std::numeric_limits<uint32_t>::max())
         throw std::runtime_error("Agent UID is out of range");
 
-    auto session = session_for_peer(pid, uid);
-    vauth::require_active_local_session(session.get(), uid);
+    std::string session = login_session_for_bus_peer(
+        connection,
+        authenticated.pid
+    );
+    vauth::require_active_local_session(session, uid);
     return {
         .uid = static_cast<uint32_t>(uid),
         .userName = username_for_uid(uid),
-        .sessionId = session.get(),
-        .busName = sender
+        .sessionId = std::move(session),
+        .busName = std::move(authenticated.uniqueName)
     };
 }
 
@@ -601,7 +574,7 @@ private:
 
     void register_agent(sdbus::MethodCall call) noexcept {
         try {
-            AgentPeer peer = resolve_peer(call);
+            AgentPeer peer = resolve_peer(*connection_, call);
             if(auto current = registry_.current_context()) {
                 if(!session_is_still_active(*current)) {
                     interactions_.clear_for(*current);

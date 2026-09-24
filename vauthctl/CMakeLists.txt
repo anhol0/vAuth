@@ -128,7 +128,7 @@ if(BUILD_TESTING)
         add_test(
             NAME vauthctl_status_dbus
             COMMAND bash
-                ${CMAKE_CURRENT_SOURCE_DIR}/tests/private_dbus_test.sh
+                ${PROJECT_SOURCE_DIR}/tests/private_dbus_test.sh
                 $<TARGET_FILE:vauthctl_status_dbus_tests>
                 ${DBUS_DAEMON_EXECUTABLE}
         )
