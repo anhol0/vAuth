@@ -280,11 +280,9 @@ reach the database key, but it does not directly encrypt the database.
 
 The systemd credential mechanism is the selected production delivery method
 because it keeps the authorization encrypted at rest and exposes its plaintext
-only in the service's private runtime credential directory. A mode-`0400`
-authorization file remains available for development and explicit recovery.
-Another equally protected secret-delivery mechanism could satisfy the same
-cryptographic role; systemd credentials are an operational choice, not a TPM
-format requirement.
+only in the service's private runtime credential directory. Both the daemon and
+management utility require that mechanism; neither accepts an arbitrary
+plaintext authorization path.
 
 Loss of either the TPM state or the authorization makes the database and its
 credential keys unrecoverable. Recovery material must be handled separately
@@ -358,7 +356,7 @@ list; resident discovery returns discoverable credentials only.
 It does not need the database authorization.
 
 Provisioning and credential-store commands need the same FAPI authorization as
-the daemon. The final production path is a systemd-managed, one-shot invocation
+the daemon. They start a systemd-managed, one-shot invocation
 running as the `vauth` service identity with:
 
 - `LoadCredentialEncrypted=vauth-db-auth:...`;
@@ -387,10 +385,11 @@ sequenceDiagram
     V-->>A: human-readable result
 ```
 
-The exact installed management-unit interface is still release work. For
-development and recovery, `--auth-file` explicitly supplies a protected
-mode-`0400` file. The encrypted credential file itself must never be passed to
-`--auth-file`; it is ciphertext that only systemd should decrypt.
+The public command uses a fixed absolute `systemd-run` path and passes arguments
+without a shell. The managed invocation validates that it runs as `vauth` with
+a systemd credential directory before it performs an operation. There is no
+plaintext authorization-file override; recovery must restore or recreate the
+encrypted systemd credential through an administrator-controlled procedure.
 
 A future daemon management API could allow mutation while the daemon is
 running, but it would require privileged authorization and explicit store
@@ -515,10 +514,8 @@ limits. A PAM module that directly requires a hardware device needs a narrowly
 scoped `DeviceAllow=` override; brokered devices such as `fprintd` require no
 such access.
 
-The daemon has no plaintext authorization-file override. It loads
-`vauth-db-auth` only from its systemd credential directory. Explicit
-mode-`0400` authorization files remain a `vauthctl` development and recovery
-mechanism and are never part of normal daemon startup.
+The daemon and `vauthctl` have no plaintext authorization-file override. They
+load `vauth-db-auth` only from their systemd credential directories.
 
 ## Failure and cancellation model
 
@@ -541,6 +538,5 @@ The target architecture requires the following remaining implementation work:
 
 1. Exercise the hardened units as installed services with every supported PAM
    module and finalize socket activation limits and package presets.
-2. Add the systemd-backed execution path for privileged `vauthctl` operations.
-3. Complete desktop activation, distribution-package integration, recovery
+2. Complete desktop activation, distribution-package integration, recovery
    documentation, and installed-system tests.

@@ -136,16 +136,15 @@ vAuth provisioning creates an authorized sealed database key at
 `/nv/Owner/vauth-db-generation`. Normal startup never creates or replaces these
 objects.
 
-For a system service, create an encrypted systemd credential and provision vAuth
-with it:
+Create an encrypted systemd credential, stop the daemon so the management
+operation can acquire the credential-store lock, and provision vAuth:
 
 ```sh
 sudo install -d -m 0700 /etc/credstore.encrypted
 sudo systemd-creds encrypt --name=vauth-db-auth - \
   /etc/credstore.encrypted/vauth-db-auth
-sudo systemd-run --wait --pipe --property=Type=oneshot \
-  --property=LoadCredentialEncrypted=vauth-db-auth:/etc/credstore.encrypted/vauth-db-auth \
-  /usr/bin/vauthctl provision
+sudo systemctl stop vauth.service
+sudo /usr/bin/vauthctl provision
 ```
 
 Enter a non-empty authorization of at most 32 bytes when prompted. Keep recovery
@@ -154,15 +153,10 @@ database unrecoverable. The service template is available at
 [`config/vauth.service.in`](config/vauth.service.in) and is configured and
 installed by CMake.
 
-For local provisioning and recovery, `vauthctl` can read a protected
-mode-`0400` authorization file directly:
-
-```sh
-sudo ./build/vauthctl/vauthctl provision --auth-file .dev/vauth-db-auth
-```
-
-The daemon does not accept an authorization-file override. Run it through its
-systemd unit, which supplies `vauth-db-auth` with `LoadCredentialEncrypted`.
+`vauthctl` starts privileged operations as hardened transient systemd services
+under the `vauth` identity. The daemon and utility do not accept plaintext
+authorization-file overrides; both receive `vauth-db-auth` only through
+systemd's credential directory.
 
 Provisioning generates the database key and rollback counter. The transient TPM
 parent is recreated when vAuth starts, and individual credential keys are
