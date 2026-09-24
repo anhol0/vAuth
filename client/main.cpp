@@ -349,14 +349,12 @@ int main() {
         std::string active_animation_kind;
         int active_animation_revision = -1;
         auto animation_started_at = std::chrono::steady_clock::now();
-        bool completion_handled = false;
         runtime->renderTick = [
             runtime_pointer = runtime.get(),
             &animations,
             active_animation_kind = std::move(active_animation_kind),
             active_animation_revision,
-            animation_started_at,
-            completion_handled
+            animation_started_at
         ]() mutable {
             const std::string requested_kind =
                 runtime_pointer->ui->get_animation_kind().data();
@@ -369,7 +367,6 @@ int main() {
                 active_animation_kind = requested_kind;
                 active_animation_revision = requested_revision;
                 animation_started_at = std::chrono::steady_clock::now();
-                completion_handled = false;
             }
 
             auto* animation = animations.for_kind(active_animation_kind);
@@ -404,20 +401,6 @@ int main() {
             runtime_pointer->ui->set_lottie_frame(
                 render_frame(*animation, frame, width, height)
             );
-
-            if(
-                !loops &&
-                elapsed_frames >= total_frames &&
-                !completion_handled
-            ) {
-                completion_handled = true;
-                if(active_animation_kind == "failure") {
-                    runtime_pointer->ui->set_animation_kind("waiting");
-                    runtime_pointer->ui->set_animation_revision(
-                        runtime_pointer->ui->get_animation_revision() + 1
-                    );
-                }
-            }
         };
 
         std::cout << "Registered vAuth UI agent generation "
