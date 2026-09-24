@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <filesystem>
 #include <optional>
 #include <string>
 
@@ -15,7 +14,7 @@ enum class Command {
 
 struct Options {
     Command command = Command::status;
-    std::optional<std::filesystem::path> authorizationPath;
+    bool managed = false;
     std::optional<uint32_t> ownerUid;
     std::optional<std::string> rpId;
     std::optional<std::string> credentialId;

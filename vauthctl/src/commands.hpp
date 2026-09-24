@@ -43,6 +43,10 @@ void print_credentials(
 
 [[nodiscard]] int get_status(sdbus::IConnection& connection);
 void provision(const std::optional<std::filesystem::path> authorizationPath);
+void provision(
+	const std::optional<std::filesystem::path> authorizationPath,
+	const std::filesystem::path& storePath
+);
 void store_clear(const std::optional<std::filesystem::path> authorizationPath);
 void store_clear(const std::optional<std::filesystem::path> authorizationPath, const std::filesystem::path& storePath);
 void credential_list(

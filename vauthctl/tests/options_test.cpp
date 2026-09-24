@@ -147,22 +147,37 @@ void test_provision_is_selected() {
     CHECK(require_options(parsed).command == Command::provision);
 }
 
-void test_provision_auth_file_is_parsed() {
-    const auto parsed = parse({
-        "vauthctl", "provision", "--auth-file", "/tmp/authorization"
-    });
-    const auto& options = require_options(parsed);
-    CHECK(options.command == Command::provision);
-    CHECK(options.authorizationPath == "/tmp/authorization");
+void test_privileged_commands_reject_auth_file() {
+	const std::string credential_id(64, 'a');
+	for(const std::vector<std::string>& arguments : {
+		std::vector<std::string>{
+			"vauthctl", "provision", "--auth-file", "/tmp/authorization"
+		},
+		std::vector<std::string>{
+			"vauthctl", "credentials", "list",
+			"--auth-file", "/tmp/authorization"
+		},
+		std::vector<std::string>{
+			"vauthctl", "credentials", "delete", "--owner", "1000",
+			"--id", credential_id, "--auth-file", "/tmp/authorization"
+		},
+		std::vector<std::string>{
+			"vauthctl", "credentials", "clear", "--confirm-destroy-all",
+			"--auth-file", "/tmp/authorization"
+		},
+	}) {
+		const auto parsed = parse(arguments);
+		CHECK(parsed.result.exitCode == 2);
+		CHECK(!parsed.result.options.has_value());
+	}
 }
 
 void test_credentials_list_without_filters() {
     const auto parsed = parse({"vauthctl", "credentials", "list"});
     const auto& options = require_options(parsed);
-    CHECK(options.command == Command::credentialsList);
-    CHECK(!options.ownerUid.has_value());
-    CHECK(!options.rpId.has_value());
-    CHECK(!options.authorizationPath.has_value());
+	CHECK(options.command == Command::credentialsList);
+	CHECK(!options.ownerUid.has_value());
+	CHECK(!options.rpId.has_value());
 }
 
 void test_credentials_list_filters_are_parsed() {
@@ -174,16 +189,6 @@ void test_credentials_list_filters_are_parsed() {
     CHECK(options.command == Command::credentialsList);
     CHECK(options.ownerUid == std::optional<uint32_t>(1000));
     CHECK(options.rpId == std::optional<std::string>("example.com"));
-}
-
-void test_credentials_list_auth_file_is_parsed() {
-    const auto parsed = parse({
-        "vauthctl", "credentials", "list",
-        "--auth-file", "/tmp/authorization"
-    });
-    const auto& options = require_options(parsed);
-    CHECK(options.command == Command::credentialsList);
-    CHECK(options.authorizationPath == "/tmp/authorization");
 }
 
 void test_owner_uid_boundaries_are_parsed() {
@@ -261,18 +266,6 @@ void test_credentials_delete_rejects_invalid_id() {
     }
 }
 
-void test_credentials_delete_auth_file_is_parsed() {
-    const std::string credential_id(64, 'A');
-    const auto parsed = parse({
-        "vauthctl", "credentials", "delete",
-        "--owner", "1000", "--id", credential_id,
-        "--auth-file", "/tmp/authorization"
-    });
-    const auto& options = require_options(parsed);
-    CHECK(options.command == Command::credentialsDelete);
-    CHECK(options.authorizationPath == "/tmp/authorization");
-}
-
 void test_invalid_owner_is_usage_error() {
     const auto parsed = parse({
         "vauthctl", "credentials", "list", "--owner", "not-a-uid"
@@ -300,21 +293,13 @@ void test_duplicate_owner_is_usage_error() {
     CHECK(!parsed.result.options.has_value());
 }
 
-void test_duplicate_filter_and_auth_options_are_usage_errors() {
-    for(const std::vector<std::string>& arguments : {
-        std::vector<std::string>{
-            "vauthctl", "credentials", "list",
-            "--rp", "first.example", "--rp", "second.example"
-        },
-        std::vector<std::string>{
-            "vauthctl", "credentials", "list",
-            "--auth-file", "/tmp/one", "--auth-file", "/tmp/two"
-        },
-    }) {
-        const auto parsed = parse(arguments);
-        CHECK(parsed.result.exitCode == 2);
-        CHECK(!parsed.result.options.has_value());
-    }
+void test_duplicate_filter_is_usage_error() {
+	const auto parsed = parse({
+		"vauthctl", "credentials", "list",
+		"--rp", "first.example", "--rp", "second.example"
+	});
+	CHECK(parsed.result.exitCode == 2);
+	CHECK(!parsed.result.options.has_value());
 }
 
 void test_clear_requires_confirmation() {
@@ -341,16 +326,14 @@ void test_clear_confirmation_is_parsed() {
     CHECK(options.confirmedDestroyAll);
 }
 
-void test_clear_auth_file_is_parsed() {
-    const auto parsed = parse({
-        "vauthctl", "credentials", "clear",
-        "--confirm-destroy-all",
-        "--auth-file", "/tmp/authorization"
-    });
-    const auto& options = require_options(parsed);
-    CHECK(options.command == Command::credentialsClear);
-    CHECK(options.confirmedDestroyAll);
-    CHECK(options.authorizationPath == "/tmp/authorization");
+void test_managed_flag_is_hidden_and_parsed() {
+	const auto help = parse({"vauthctl", "--help"});
+	CHECK(help.standardOutput.find("--managed") == std::string::npos);
+
+	const auto parsed = parse({"vauthctl", "--managed", "provision"});
+	const auto& options = require_options(parsed);
+	CHECK(options.command == Command::provision);
+	CHECK(options.managed);
 }
 
 } // namespace
@@ -394,10 +377,7 @@ int main() {
         test_status_rejects_auth_file_after_command
     );
     runner.run("test_provision_is_selected", test_provision_is_selected);
-    runner.run(
-        "test_provision_auth_file_is_parsed",
-        test_provision_auth_file_is_parsed
-    );
+	runner.run("auth file rejected", test_privileged_commands_reject_auth_file);
     runner.run(
         "test_credentials_list_without_filters",
         test_credentials_list_without_filters
@@ -405,10 +385,6 @@ int main() {
     runner.run(
         "test_credentials_list_filters_are_parsed",
         test_credentials_list_filters_are_parsed
-    );
-    runner.run(
-        "test_credentials_list_auth_file_is_parsed",
-        test_credentials_list_auth_file_is_parsed
     );
     runner.run(
         "test_owner_uid_boundaries_are_parsed",
@@ -435,10 +411,6 @@ int main() {
         test_credentials_delete_rejects_invalid_id
     );
     runner.run(
-        "test_credentials_delete_auth_file_is_parsed",
-        test_credentials_delete_auth_file_is_parsed
-    );
-    runner.run(
         "test_invalid_owner_is_usage_error",
         test_invalid_owner_is_usage_error
     );
@@ -450,10 +422,7 @@ int main() {
         "test_duplicate_owner_is_usage_error",
         test_duplicate_owner_is_usage_error
     );
-    runner.run(
-        "test_duplicate_filter_and_auth_options_are_usage_errors",
-        test_duplicate_filter_and_auth_options_are_usage_errors
-    );
+	runner.run("duplicate filter rejected", test_duplicate_filter_is_usage_error);
     runner.run(
         "test_clear_requires_confirmation",
         test_clear_requires_confirmation
@@ -466,9 +435,6 @@ int main() {
         "test_clear_confirmation_is_parsed",
         test_clear_confirmation_is_parsed
     );
-    runner.run(
-        "test_clear_auth_file_is_parsed",
-        test_clear_auth_file_is_parsed
-    );
+	runner.run("managed flag", test_managed_flag_is_hidden_and_parsed);
     return runner.finish();
 }

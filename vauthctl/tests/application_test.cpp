@@ -2,7 +2,6 @@
 #include "test_runner.hpp"
 
 #include <cstdint>
-#include <filesystem>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -13,224 +12,203 @@
 namespace {
 
 void check(bool condition, const char* expression, int line) {
-    if(!condition) {
-        throw std::runtime_error(
-            "CHECK failed at line " + std::to_string(line) +
-            ": " + expression
-        );
-    }
+	if(!condition) {
+		throw std::runtime_error(
+			"CHECK failed at line " + std::to_string(line) + ": " + expression
+		);
+	}
 }
 
 #define CHECK(expression) check((expression), #expression, __LINE__)
 
 template<typename Exception, typename Function>
 void check_throws(Function&& function) {
-    bool thrown = false;
-    try {
-        function();
-    } catch(const Exception&) {
-        thrown = true;
-    }
-    CHECK(thrown);
+	bool thrown = false;
+	try {
+		function();
+	} catch(const Exception&) {
+		thrown = true;
+	}
+	CHECK(thrown);
 }
 
 struct Calls {
-    unsigned int status = 0;
-    unsigned int provision = 0;
-    unsigned int clear = 0;
-    unsigned int list = 0;
-    unsigned int erase = 0;
-    std::optional<std::filesystem::path> authorizationPath;
-    std::optional<uint32_t> ownerUid;
-    std::optional<std::string> rpId;
-    std::optional<std::string> credentialId;
+	unsigned int status = 0;
+	unsigned int managed = 0;
+	unsigned int provision = 0;
+	unsigned int clear = 0;
+	unsigned int list = 0;
+	unsigned int erase = 0;
+	std::optional<Options> managedOptions;
+	std::optional<uint32_t> ownerUid;
+	std::optional<std::string> rpId;
+	std::optional<std::string> credentialId;
 };
 
-CommandOperations recording_operations(Calls& calls, int status_result = 0) {
-    return {
-        .status = [&calls, status_result] {
-            ++calls.status;
-            return status_result;
-        },
-        .provision = [&calls](const auto& authorization_path) {
-            ++calls.provision;
-            calls.authorizationPath = authorization_path;
-        },
-        .clear = [&calls](const auto& authorization_path) {
-            ++calls.clear;
-            calls.authorizationPath = authorization_path;
-        },
-        .list = [&calls](
-            const auto& authorization_path,
-            std::optional<uint32_t> owner_uid,
-            const std::optional<std::string>& rp_id
-        ) {
-            ++calls.list;
-            calls.authorizationPath = authorization_path;
-            calls.ownerUid = owner_uid;
-            calls.rpId = rp_id;
-        },
-        .erase = [&calls](
-            const auto& authorization_path,
-            uint32_t owner_uid,
-            std::string_view credential_id
-        ) {
-            ++calls.erase;
-            calls.authorizationPath = authorization_path;
-            calls.ownerUid = owner_uid;
-            calls.credentialId = credential_id;
-        },
-    };
+CommandOperations recording_operations(Calls& calls, int statusResult = 0) {
+	return {
+		.status = [&calls, statusResult] {
+			++calls.status;
+			return statusResult;
+		},
+		.managed = [&calls](const Options& options) {
+			++calls.managed;
+			calls.managedOptions = options;
+			return 23;
+		},
+		.provision = [&calls] { ++calls.provision; },
+		.clear = [&calls] { ++calls.clear; },
+		.list = [&calls](
+			std::optional<uint32_t> ownerUid,
+			const std::optional<std::string>& rpId
+		) {
+			++calls.list;
+			calls.ownerUid = ownerUid;
+			calls.rpId = rpId;
+		},
+		.erase = [&calls](uint32_t ownerUid, std::string_view credentialId) {
+			++calls.erase;
+			calls.ownerUid = ownerUid;
+			calls.credentialId = credentialId;
+		},
+	};
 }
 
-Options options_for(Command command) {
-    Options options;
-    options.command = command;
-    return options;
+Options options_for(Command command, bool managed = false) {
+	Options options;
+	options.command = command;
+	options.managed = managed;
+	return options;
 }
 
-void check_only_called(unsigned int expected, const Calls& calls) {
-    CHECK(calls.status + calls.provision + calls.clear + calls.list +
-          calls.erase == 1);
-    CHECK(expected == 1);
+unsigned int total_calls(const Calls& calls) {
+	return calls.status + calls.managed + calls.provision + calls.clear +
+		calls.list + calls.erase;
 }
 
 void test_status_dispatch_and_exit_code() {
-    Calls calls;
-    const auto operations = recording_operations(calls, 7);
-    const int result = execute_command(
-        options_for(Command::status),
-        operations
-    );
-
-    CHECK(result == 7);
-    check_only_called(calls.status, calls);
+	Calls calls;
+	const auto operations = recording_operations(calls, 7);
+	CHECK(execute_command(options_for(Command::status), operations) == 7);
+	CHECK(calls.status == 1);
+	CHECK(total_calls(calls) == 1);
 }
 
-void test_provision_dispatch() {
-    Calls calls;
-    const auto operations = recording_operations(calls);
-    auto options = options_for(Command::provision);
-    options.authorizationPath = "/tmp/provision-auth";
+void test_public_privileged_commands_use_managed_execution() {
+	std::vector<Options> inputs;
+	inputs.push_back(options_for(Command::provision));
+	auto list = options_for(Command::credentialsList);
+	list.ownerUid = 1000;
+	list.rpId = "example.com";
+	inputs.push_back(list);
+	auto erase = options_for(Command::credentialsDelete);
+	erase.ownerUid = 1001;
+	erase.credentialId = std::string(64, 'a');
+	inputs.push_back(erase);
+	auto clear = options_for(Command::credentialsClear);
+	clear.confirmedDestroyAll = true;
+	inputs.push_back(clear);
 
-    CHECK(execute_command(options, operations) == 0);
-    check_only_called(calls.provision, calls);
-    CHECK(calls.authorizationPath == options.authorizationPath);
+	for(const Options& options : inputs) {
+		Calls calls;
+		const auto operations = recording_operations(calls);
+		CHECK(execute_command(options, operations) == 23);
+		CHECK(calls.managed == 1);
+		CHECK(calls.managedOptions.has_value());
+		CHECK(calls.managedOptions->command == options.command);
+		CHECK(total_calls(calls) == 1);
+	}
 }
 
-void test_clear_dispatch() {
-    Calls calls;
-    const auto operations = recording_operations(calls);
-    auto options = options_for(Command::credentialsClear);
-    options.authorizationPath = "/tmp/clear-auth";
-    options.confirmedDestroyAll = true;
-
-    CHECK(execute_command(options, operations) == 0);
-    check_only_called(calls.clear, calls);
-    CHECK(calls.authorizationPath == options.authorizationPath);
+void test_managed_commands_dispatch_directly() {
+	{
+		Calls calls;
+		const auto operations = recording_operations(calls);
+		CHECK(execute_command(options_for(Command::provision, true), operations) == 0);
+		CHECK(calls.provision == 1);
+		CHECK(total_calls(calls) == 1);
+	}
+	{
+		Calls calls;
+		const auto operations = recording_operations(calls);
+		auto options = options_for(Command::credentialsList, true);
+		options.ownerUid = 1000;
+		options.rpId = "example.com";
+		CHECK(execute_command(options, operations) == 0);
+		CHECK(calls.list == 1);
+		CHECK(calls.ownerUid == options.ownerUid);
+		CHECK(calls.rpId == options.rpId);
+		CHECK(total_calls(calls) == 1);
+	}
+	{
+		Calls calls;
+		const auto operations = recording_operations(calls);
+		auto options = options_for(Command::credentialsDelete, true);
+		options.ownerUid = 1001;
+		options.credentialId = std::string(64, 'b');
+		CHECK(execute_command(options, operations) == 0);
+		CHECK(calls.erase == 1);
+		CHECK(calls.ownerUid == options.ownerUid);
+		CHECK(calls.credentialId == options.credentialId);
+		CHECK(total_calls(calls) == 1);
+	}
+	{
+		Calls calls;
+		const auto operations = recording_operations(calls);
+		auto options = options_for(Command::credentialsClear, true);
+		options.confirmedDestroyAll = true;
+		CHECK(execute_command(options, operations) == 0);
+		CHECK(calls.clear == 1);
+		CHECK(total_calls(calls) == 1);
+	}
 }
 
-void test_clear_requires_confirmation_before_dispatch() {
-    Calls calls;
-    const auto operations = recording_operations(calls);
-    const Options options = options_for(Command::credentialsClear);
+void test_invalid_destructive_options_fail_before_dispatch() {
+	auto missingId = options_for(Command::credentialsDelete);
+	missingId.ownerUid = 1000;
+	auto missingOwner = options_for(Command::credentialsDelete);
+	missingOwner.credentialId = std::string(64, 'a');
+	const auto unconfirmedClear = options_for(Command::credentialsClear);
 
-    check_throws<std::invalid_argument>([&] {
-        static_cast<void>(execute_command(options, operations));
-    });
-    CHECK(calls.status + calls.provision + calls.clear + calls.list +
-          calls.erase == 0);
+	for(const Options& options : std::vector<Options>{
+		std::move(missingId), std::move(missingOwner), unconfirmedClear
+	}) {
+		Calls calls;
+		const auto operations = recording_operations(calls);
+		check_throws<std::invalid_argument>([&] {
+			static_cast<void>(execute_command(options, operations));
+		});
+		CHECK(total_calls(calls) == 0);
+	}
 }
 
-void test_list_dispatch() {
-    Calls calls;
-    const auto operations = recording_operations(calls);
-    auto options = options_for(Command::credentialsList);
-    options.authorizationPath = "/tmp/list-auth";
-    options.ownerUid = 1000;
-    options.rpId = "example.com";
-
-    CHECK(execute_command(options, operations) == 0);
-    check_only_called(calls.list, calls);
-    CHECK(calls.authorizationPath == options.authorizationPath);
-    CHECK(calls.ownerUid == options.ownerUid);
-    CHECK(calls.rpId == options.rpId);
-}
-
-void test_delete_dispatch() {
-    Calls calls;
-    const auto operations = recording_operations(calls);
-    auto options = options_for(Command::credentialsDelete);
-    options.authorizationPath = "/tmp/delete-auth";
-    options.ownerUid = 1001;
-    options.credentialId = std::string(64, 'a');
-
-    CHECK(execute_command(options, operations) == 0);
-    check_only_called(calls.erase, calls);
-    CHECK(calls.authorizationPath == options.authorizationPath);
-    CHECK(calls.ownerUid == options.ownerUid);
-    CHECK(calls.credentialId == options.credentialId);
-}
-
-void test_delete_requires_owner_and_id_before_dispatch() {
-    auto missing_id = options_for(Command::credentialsDelete);
-    missing_id.ownerUid = 1000;
-    auto missing_owner = options_for(Command::credentialsDelete);
-    missing_owner.credentialId = std::string(64, 'a');
-    for(const Options& options : std::vector<Options>{
-        std::move(missing_id),
-        std::move(missing_owner),
-    }) {
-        Calls calls;
-        const auto operations = recording_operations(calls);
-        check_throws<std::invalid_argument>([&] {
-            static_cast<void>(execute_command(options, operations));
-        });
-        CHECK(calls.status + calls.provision + calls.clear + calls.list +
-              calls.erase == 0);
-    }
+void test_status_rejects_managed_mode() {
+	Calls calls;
+	const auto operations = recording_operations(calls);
+	check_throws<std::invalid_argument>([&] {
+		static_cast<void>(execute_command(options_for(Command::status, true), operations));
+	});
+	CHECK(total_calls(calls) == 0);
 }
 
 void test_operation_failure_propagates() {
-    Calls calls;
-    auto operations = recording_operations(calls);
-    operations.provision = [](const auto&) {
-        throw std::runtime_error("simulated provisioning failure");
-    };
-
-    check_throws<std::runtime_error>([&] {
-        static_cast<void>(execute_command(
-            options_for(Command::provision),
-            operations
-        ));
-    });
-    CHECK(calls.status + calls.provision + calls.clear + calls.list +
-          calls.erase == 0);
+	Calls calls;
+	auto operations = recording_operations(calls);
+	operations.provision = [] { throw std::runtime_error("simulated failure"); };
+	check_throws<std::runtime_error>([&] {
+		static_cast<void>(execute_command(options_for(Command::provision, true), operations));
+	});
 }
 
 } // namespace
 
 int main() {
-    test_support::Runner runner;
-    runner.run(
-        "test_status_dispatch_and_exit_code",
-        test_status_dispatch_and_exit_code
-    );
-    runner.run("test_provision_dispatch", test_provision_dispatch);
-    runner.run("test_clear_dispatch", test_clear_dispatch);
-    runner.run(
-        "test_clear_requires_confirmation_before_dispatch",
-        test_clear_requires_confirmation_before_dispatch
-    );
-    runner.run("test_list_dispatch", test_list_dispatch);
-    runner.run("test_delete_dispatch", test_delete_dispatch);
-    runner.run(
-        "test_delete_requires_owner_and_id_before_dispatch",
-        test_delete_requires_owner_and_id_before_dispatch
-    );
-    runner.run(
-        "test_operation_failure_propagates",
-        test_operation_failure_propagates
-    );
-    return runner.finish();
+	test_support::Runner runner;
+	runner.run("status dispatch", test_status_dispatch_and_exit_code);
+	runner.run("public privileged dispatch", test_public_privileged_commands_use_managed_execution);
+	runner.run("managed direct dispatch", test_managed_commands_dispatch_directly);
+	runner.run("invalid destructive options", test_invalid_destructive_options_fail_before_dispatch);
+	runner.run("managed status rejected", test_status_rejects_managed_mode);
+	runner.run("operation failure", test_operation_failure_propagates);
+	return runner.finish();
 }

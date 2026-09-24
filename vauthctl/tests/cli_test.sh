@@ -40,10 +40,5 @@ grep -q -- "--confirm-destroy-all is required" "$test_directory/stderr"
 run_command 2 credentials delete --owner 1000 --id invalid
 grep -q "Credential ID" "$test_directory/stderr"
 
-missing_authorization=$test_directory/missing-authorization
-run_command 1 credentials list --auth-file "$missing_authorization"
-grep -q "open database authorization credential" "$test_directory/stderr"
-if grep -q "credential store cleared" "$test_directory/stdout"; then
-    echo "A failed command reported success" >&2
-    exit 1
-fi
+run_command 2 credentials list --auth-file "$test_directory/authorization"
+grep -q -- "--auth-file" "$test_directory/stderr"

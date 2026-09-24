@@ -41,11 +41,11 @@ ParseResult parse_options(int argc, char** argv) {
 	app.fallthrough();
 
 	Options options;
+	app.add_flag("--managed", options.managed)->group("");
 
 	auto* status = app.add_subcommand("status", "Check status of the vauth daemon");
 	auto* provision =
 		app.add_subcommand("provision", "Create the database key and rollback counter");
-	provision->add_option("--auth-file", options.authorizationPath, "Database authorization file");
 
 	auto* credentials = app.add_subcommand("credentials", "Manage stored credentials");
 	credentials->require_subcommand(1);
@@ -53,7 +53,6 @@ ParseResult parse_options(int argc, char** argv) {
 	auto* list = credentials->add_subcommand("list", "List credential metadata");
 	list->add_option("--owner", options.ownerUid, "Filter by owner UID");
 	list->add_option("--rp", options.rpId, "Filter by relying-party ID");
-	list->add_option("--auth-file", options.authorizationPath, "Database authorization file");
 
 	auto* remove = credentials->add_subcommand("delete", "Delete one credential");
 	remove->add_option("--owner", options.ownerUid, "Credential owner UID")->required();
@@ -61,14 +60,12 @@ ParseResult parse_options(int argc, char** argv) {
 		->add_option("--id", options.credentialId, "Credential ID in hexadecimal")
 		->check(credential_id_validator())
 		->required();
-	remove->add_option("--auth-file", options.authorizationPath, "Database authorization file");
 
 	auto* clear = credentials->add_subcommand("clear", "Delete every stored credential");
 	clear
 		->add_flag("--confirm-destroy-all", options.confirmedDestroyAll, "Confirm deletion of every stored credential")
 		->required()
 		->disable_flag_override();
-	clear->add_option("--auth-file", options.authorizationPath, "Database authorization file");
 
 	try {
 		app.parse(argc, argv);

@@ -171,7 +171,15 @@ int get_status(sdbus::IConnection& connection) {
 }
 
 void provision(const std::optional<std::filesystem::path> authorizationPath) {
+	provision(authorizationPath, STORE_PATH);
+}
+
+void provision(
+	const std::optional<std::filesystem::path> authorizationPath,
+	const std::filesystem::path& storePath
+) {
 	StoreAuthorization authorization(store_authorization_path(authorizationPath));
+	CredentialStoreLock store_lock(storePath);
 	FapiStoreSecurity security(authorization.view());
 	security.provision();
 	std::cout << "Database key and rollback counter provisioned\n";

@@ -1,0 +1,11 @@
+#pragma once
+
+#include <string_view>
+
+namespace vauthctl {
+
+inline constexpr std::string_view systemdRunPath = "@SYSTEMD_RUN_EXECUTABLE@";
+inline constexpr std::string_view installedExecutablePath = "@VAUTHCTL_INSTALLED_PATH@";
+inline constexpr std::string_view fapiSystemDirectory = "@VAUTH_FAPI_SYSTEM_DIR@";
+
+} // namespace vauthctl

@@ -1,6 +1,8 @@
 #include "application.hpp"
 #include "commands.hpp"
 #include "log.hpp"
+#include "managed_config.hpp"
+#include "managed_execution.hpp"
 #include "options.hpp"
 
 #include <cstdint>
@@ -18,23 +20,38 @@ int main(int argc, char** argv) {
 		return parsed.exitCode;
 
 	try {
+		const vauthctl::ManagedExecutionConfig managedConfig{
+			.systemdRunPath = std::string(vauthctl::systemdRunPath),
+			.executablePath = std::string(vauthctl::installedExecutablePath),
+			.fapiSystemDirectory = std::string(vauthctl::fapiSystemDirectory),
+		};
 		const CommandOperations operations{
 			.status =
 				[] {
 					auto connection = sdbus::createSystemBusConnection();
 					return get_status(*connection);
 				},
-			.provision = [](const auto& authorization_path
-						 ) { provision(authorization_path); },
-			.clear = [](const auto& authorization_path
-					 ) { store_clear(authorization_path); },
-			.list = [](const auto& authorization_path,
-					   std::optional<uint32_t> owner_uid,
+			.managed = [&managedConfig](const Options& options) {
+				return vauthctl::run_managed_command(options, managedConfig);
+			},
+			.provision = [] {
+				vauthctl::require_managed_execution_context();
+				provision(std::nullopt);
+			},
+			.clear = [] {
+				vauthctl::require_managed_execution_context();
+				store_clear(std::nullopt);
+			},
+			.list = [](std::optional<uint32_t> owner_uid,
 					   const std::optional<std::string>& rp_id
-					) { credential_list(authorization_path, owner_uid, rp_id); },
+					) {
+				vauthctl::require_managed_execution_context();
+				credential_list(std::nullopt, owner_uid, rp_id);
+			},
 			.erase =
-				[](const auto& authorization_path, uint32_t owner_uid, std::string_view credential_id) {
-					erase_credential(authorization_path, owner_uid, credential_id);
+				[](uint32_t owner_uid, std::string_view credential_id) {
+					vauthctl::require_managed_execution_context();
+					erase_credential(std::nullopt, owner_uid, credential_id);
 				},
 		};
 		return execute_command(*parsed.options, operations);

@@ -390,10 +390,10 @@ void setup(
     write_authorization_file(wrong_authorization_path, wrong_authorization);
 
     capture_output([&] {
-        provision(authorization_path);
+        provision(authorization_path, store_path);
     });
     expect_rejected<std::exception>(
-        [&] { provision(authorization_path); },
+        [&] { provision(authorization_path, store_path); },
         "Duplicate provisioning was accepted"
     );
 
