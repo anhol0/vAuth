@@ -152,6 +152,12 @@ vauth-ui
 vauthctl status
 ```
 
+> [!WARNING]
+> When using Firefox, cancel an active passkey operation through Firefox's own
+> in-browser authentication prompt instead of the Cancel control in
+> `vauth-ui`. Firefox may retry an authenticator request cancelled through the
+> vAuth interface.
+
 vAuth does not install an autostart entry for `vauth-ui`. Configure it to start
 with the graphical session only if that matches your desktop environment or
 window-manager setup.
