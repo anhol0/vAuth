@@ -11,6 +11,11 @@ find_package(sdbus-c++ CONFIG REQUIRED)
 
 option(VAUTH_BUILD_UI "Build the Slint vAuth user-interaction agent" ON)
 option(
+    VAUTH_LINK_SLINT_STATIC
+    "Require vauth-ui to link against a statically built Slint C++ SDK"
+    OFF
+)
+option(
     VAUTH_BUILD_DEBUG_AGENT
     "Build the temporary console D-Bus user-interaction agent"
     ${BUILD_TESTING}
@@ -19,6 +24,27 @@ option(
 if(VAUTH_BUILD_UI)
     find_package(Slint REQUIRED)
     find_package(rlottie REQUIRED)
+
+    if(VAUTH_LINK_SLINT_STATIC)
+        if(NOT TARGET slint_cpp-static)
+            message(FATAL_ERROR
+                "VAUTH_LINK_SLINT_STATIC=ON requires a Slint C++ SDK built "
+                "with BUILD_SHARED_LIBS=OFF. Point Slint_DIR or "
+                "CMAKE_PREFIX_PATH at that SDK."
+            )
+        endif()
+        find_package(Fontconfig REQUIRED)
+        set_property(
+            TARGET slint_cpp-static
+            APPEND PROPERTY INTERFACE_LINK_LIBRARIES Fontconfig::Fontconfig
+        )
+    elseif(NOT TARGET slint_cpp-shared)
+        message(FATAL_ERROR
+            "Shared Slint linkage is the default, but the selected Slint "
+            "C++ SDK was built with BUILD_SHARED_LIBS=OFF. Configure vAuth "
+            "with -DVAUTH_LINK_SLINT_STATIC=ON or select a shared SDK."
+        )
+    endif()
 
     file(READ
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/pending.json"

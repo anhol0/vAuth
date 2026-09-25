@@ -90,3 +90,10 @@ do not require the graphical stack. Such a split must not make the bundled UI
 a daemon security dependency: the documented D-Bus agent interface remains the
 boundary, and the daemon continues to fail closed when no eligible agent is
 registered.
+
+Package builds may link Slint statically so that it is a build-time dependency
+rather than an installed runtime dependency. Such builds use a Slint C++ SDK
+built with `BUILD_SHARED_LIBS=OFF` and configure vAuth with
+`-DVAUTH_LINK_SLINT_STATIC=ON`. Source builds retain shared linkage by default.
+Static linkage does not remove Slint's license, attribution, source-availability,
+or distribution-policy obligations.
