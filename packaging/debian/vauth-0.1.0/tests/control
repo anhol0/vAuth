@@ -1,0 +1,3 @@
+Tests: installed
+Depends: @, systemd
+Restrictions: needs-root, isolation-machine

@@ -1,0 +1,5 @@
+vauth (0.1.0-1) UNRELEASED; urgency=medium
+
+  * Initial Debian packaging for beta testing.
+
+ -- Efim Belorusets <admin@lamellix.com>  Fri, 25 Sep 2026 00:22:12 -0400

@@ -1,0 +1,36 @@
+vAuth Debian packaging
+======================
+
+The canonical Debian metadata is kept in packaging/debian/vauth-0.1.0 so that
+other distribution formats and versions can live beside it. Debian tools
+require this directory to be named debian at the source-tree root.
+build-local.sh creates a temporary clean source tree and performs that mapping
+without modifying the checkout.
+
+Static Slint prerequisite
+-------------------------
+
+The binary package links Slint statically so installed systems do not need a
+Slint runtime package. The local builder must provide a Slint C++ SDK built
+with BUILD_SHARED_LIBS=OFF and set VAUTH_SLINT_DIR to the directory containing
+SlintConfig.cmake, for example:
+
+  VAUTH_SLINT_DIR=/opt/slint-static/lib/cmake/Slint \
+    packaging/debian/vauth-0.1.0/build-local.sh
+
+Slint is intentionally not listed as a Debian Build-Depends while no suitable
+Debian package exists. Consequently this initial packaging is suitable for
+local beta packages and a controlled project repository, but it is not yet a
+self-contained Debian archive source package.
+
+Release blockers
+----------------
+
+The three JSON animation documents under client/assets do not yet have recorded
+provenance and redistribution terms. Public packages must not be distributed
+until those terms are established or the assets are replaced.
+
+A statically linked vauth-ui also incorporates Slint. Public binary packages
+must include the exact Slint license and all notices corresponding to the SDK
+used for that build. See THIRD_PARTY_NOTICES.md for the project's current
+license selection and remaining notice work.

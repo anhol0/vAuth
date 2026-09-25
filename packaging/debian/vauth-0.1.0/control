@@ -1,0 +1,50 @@
+Source: vauth
+Section: utils
+Priority: optional
+Maintainer: Lamellix Labs <admin@lamellix.com>
+Uploaders: Efim Belorusets <holo.linuxlv@gmail.com>
+Build-Depends:
+ cmake (>= 3.21),
+ dbus-daemon,
+ debhelper-compat (= 13),
+ libcli11-dev,
+ libfontconfig-dev,
+ libpam0g-dev,
+ librlottie-dev,
+ libsdbus-c++-dev,
+ libssl-dev,
+ libsystemd-dev,
+ libtinycbor-dev,
+ libtss2-dev,
+ nlohmann-json3-dev,
+ pkgconf,
+ swtpm,
+ swtpm-tools,
+ systemd,
+ tpm2-tools,
+ udev,
+Standards-Version: 4.7.2.0
+Rules-Requires-Root: no
+Homepage: https://github.com/lamellixlabs/vAuth
+Vcs-Browser: https://github.com/lamellixlabs/vAuth
+Vcs-Git: https://github.com/lamellixlabs/vAuth.git
+
+Package: vauth
+Architecture: linux-any
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+ default-dbus-system-bus | dbus-system-bus,
+ systemd (>= 250),
+ udev,
+Recommends:
+ libpam-fprintd,
+ tpm2-tools,
+Description: TPM-backed virtual FIDO2 authenticator for Linux
+ vAuth exposes a virtual FIDO2 authenticator through Linux UHID. It keeps
+ credential keys in the TPM, uses PAM for user verification, and stores
+ credential metadata in an authenticated encrypted local database.
+ .
+ The package includes the system daemon, administration utility, and graphical
+ user-interaction agent. Initial TPM provisioning remains an explicit
+ administrator operation after installation.

@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+
+test -x /usr/bin/vauthctl
+test -x /usr/bin/vauth-ui
+test -x /usr/libexec/vauth/vauthd
+
+test -f /usr/lib/systemd/system/vauth.service
+test -f /usr/lib/systemd/system/vauth-pam-verifier.socket
+test -f /usr/lib/systemd/system/vauth-pam-verifier@.service
+test -f /usr/lib/sysusers.d/vauth.conf
+test -f /usr/lib/udev/rules.d/70-vauth.rules
+test -f /usr/share/dbus-1/system.d/org.lamellix.vAuth.conf
+test -f /etc/vauth/config/vauth
+test -f /usr/share/doc/vauth/copyright
+
+if ldd /usr/bin/vauth-ui | grep -q 'libslint_cpp'; then
+    echo "vauth-ui unexpectedly has a shared Slint dependency" >&2
+    exit 1
+fi
+if ldd /usr/bin/vauth-ui | grep -q 'not found'; then
+    echo "vauth-ui has an unresolved shared-library dependency" >&2
+    exit 1
+fi
+
+case "$(systemctl is-enabled vauth.service 2>/dev/null || true)" in
+    disabled) ;;
+    *)
+        echo "vauth.service was enabled during package installation" >&2
+        exit 1
+        ;;
+esac
+case "$(systemctl is-enabled vauth-pam-verifier.socket 2>/dev/null || true)" in
+    disabled) ;;
+    *)
+        echo "vauth-pam-verifier.socket was enabled during installation" >&2
+        exit 1
+        ;;
+esac
+
+if systemctl is-active --quiet vauth.service; then
+    echo "vauth.service was started during package installation" >&2
+    exit 1
+fi
+if systemctl is-active --quiet vauth-pam-verifier.socket; then
+    echo "vauth-pam-verifier.socket was started during installation" >&2
+    exit 1
+fi
+
+if dpkg-query -L vauth | grep -q '/vauth-db-auth$'; then
+    echo "the package owns host-specific authorization material" >&2
+    exit 1
+fi
+if dpkg-query -L vauth | grep -Eq '/(autostart|systemd/user)/'; then
+    echo "the package installed unsupported UI autostart integration" >&2
+    exit 1
+fi
+
+systemd-analyze verify \
+    /usr/lib/systemd/system/vauth.service \
+    /usr/lib/systemd/system/vauth-pam-verifier.socket \
+    /usr/lib/systemd/system/vauth-pam-verifier@.service

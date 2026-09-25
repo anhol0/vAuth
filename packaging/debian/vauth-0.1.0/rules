@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+
+# Apply Debian's full compiler and linker hardening profile.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+VAUTH_CMAKE_ARGUMENTS = \
+	-DBUILD_TESTING=ON \
+	-DVAUTH_BUILD_DEBUG_AGENT=OFF \
+	-DVAUTH_BUILD_UI=ON \
+	-DVAUTH_LINK_SLINT_STATIC=ON \
+	-DVAUTH_FAPI_SYSTEM_DIR=/var/lib/tpm2-tss/system/keystore
+
+ifneq ($(strip $(VAUTH_SLINT_DIR)),)
+VAUTH_CMAKE_ARGUMENTS += -DSlint_DIR=$(VAUTH_SLINT_DIR)
+endif
+
+%:
+	dh $@ --buildsystem=cmake
+
+override_dh_auto_configure:
+	dh_auto_configure -- $(VAUTH_CMAKE_ARGUMENTS)
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
