@@ -1,15 +1,34 @@
 # vAuth
 
-[![Built with Slint](https://img.shields.io/badge/Built%20with-Slint-2379F4?logo=slint&logoColor=white)](https://slint.dev/)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/lamellixlabs/vAuth/refs/heads/main/vauth.svg" alt="vAuth logo" width="600">
+</p>
 
-vAuth turns a TPM-equipped Linux computer into a virtual FIDO2 authenticator.
-Browsers see a security key, while passkeys stay on the computer and sensitive
-operations are confirmed through a small desktop interface.
+[![Built with Slint](https://img.shields.io/badge/Built%20with-Slint-2379F4?logo=slint&logoColor=white)](https://slint.dev/)
+[![License](https://img.shields.io/github/license/anhol0/vAuth)](https://github.com/anhol0/vAuth/blob/main/LICENSE)
+![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)
+![Linux](https://img.shields.io/badge/platform-Linux-FCC624?logo=linux&logoColor=black)
+![FIDO2](https://img.shields.io/badge/FIDO2-CTAP2.0-blue)
+![TPM](https://img.shields.io/badge/TPM-2.0-blue)
+![Status](https://img.shields.io/badge/status-public_beta-blue)
+
+
+# What is it and why would you need it?
+
+vAuth is an application that aims to bring the convenience of Windows Hello  
+to Linux based systems equipped with TPM hardware. It runs in the background  
+and allows users to use any of their preferred authentication methods to sign  
+into websites, services or other apps that support FIDO2.0 protocol. Browsers  
+see a security key, while passkeys stay on the computer and sensitive operations  
+are confirmed through a small desktop interface.
 
 It is useful when you want machine-bound passkeys without carrying a separate
 USB authenticator. vAuth uses the TPM for credential keys, PAM for user
 verification, and an encrypted local credential store. A fingerprint reader is
-optional; password verification remains available through PAM.
+optional; password verification remains available through PAM. Even though  
+the officially tested authentication methods include only password and fingerprint,  
+you can use virtually any authentication method of your convenience, including  
+Smart Cards, NFC, facial recognition through Howdy, and many more.
 
 > [!IMPORTANT]
 > vAuth is pre-release software. Distribution packages and automated first-run
@@ -77,6 +96,11 @@ Install the Slint C++ SDK using its
 [official binary-package or source instructions](https://docs.slint.dev/latest/docs/cpp/cmake/).
 When using the prebuilt SDK, add its extracted directory to
 `CMAKE_PREFIX_PATH` and its `lib` directory to `LD_LIBRARY_PATH`.
+Shared Slint linkage is the default. To link only Slint statically, build its
+C++ SDK with `BUILD_SHARED_LIBS=OFF`, select that SDK with `Slint_DIR` or
+`CMAKE_PREFIX_PATH`, and configure vAuth with
+`-DVAUTH_LINK_SLINT_STATIC=ON`. This does not make the other dependencies
+static.
 
 Configure, build, test, and install:
 
