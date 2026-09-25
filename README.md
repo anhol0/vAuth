@@ -13,7 +13,7 @@
 ![Status](https://img.shields.io/badge/status-public_beta-blue)
 
 
-# What is it and why would you need it?
+## What is it and why would you need it?
 
 vAuth is an application that aims to bring the convenience of Windows Hello  
 to Linux based systems equipped with TPM hardware. It runs in the background  
