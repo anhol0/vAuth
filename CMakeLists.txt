@@ -31,7 +31,7 @@ set(
 )
 set(
     VAUTH_DBUS_SYSTEM_POLICY_DIR
-    "${CMAKE_INSTALL_DATADIR}/dbus-1/system.d"
+    "/usr/share/dbus-1/system.d"
     CACHE PATH
     "Directory for system-bus policy files"
 )

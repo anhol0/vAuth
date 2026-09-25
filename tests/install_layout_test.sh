@@ -89,6 +89,10 @@ grep -Fxq "SocketGroup=vauth" "$socket_unit"
 grep -Eq '^u[[:space:]]+vauth[[:space:]]' "$sysusers"
 grep -Eq '^m[[:space:]]+vauth[[:space:]]+tss$' "$sysusers"
 grep -q 'KERNEL=="uhid"' "$udev_rule"
+grep -Fq '<policy user="vauth">' "$dbus_policy"
+grep -Fq '<allow own="org.lamellix.vAuth"/>' "$dbus_policy"
+grep -Fq 'pam_fprintd.so' "$pam_policy"
+grep -Fq 'pam_unix.so try_first_pass' "$pam_policy"
 
 if find "$staging_directory" -type f \
     \( -name 'vauth-agent-debug' -o -name 'libvauth_test_pam_module.so' \) \

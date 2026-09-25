@@ -14,6 +14,19 @@ test -f /usr/share/dbus-1/system.d/org.lamellix.vAuth.conf
 test -f /etc/vauth/config/vauth
 test -f /usr/share/doc/vauth/copyright
 
+if ! getent passwd vauth >/dev/null; then
+    echo "the vauth system user was not created during installation" >&2
+    exit 1
+fi
+if ! getent group vauth >/dev/null; then
+    echo "the vauth system group was not created during installation" >&2
+    exit 1
+fi
+if ! id -Gn vauth | tr ' ' '\n' | grep -Fxq tss; then
+    echo "the vauth system user is not a member of the tss group" >&2
+    exit 1
+fi
+
 if ldd /usr/bin/vauth-ui | grep -q 'libslint_cpp'; then
     echo "vauth-ui unexpectedly has a shared Slint dependency" >&2
     exit 1
