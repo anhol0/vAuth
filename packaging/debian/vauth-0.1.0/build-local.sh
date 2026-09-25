@@ -28,6 +28,8 @@ for command_name in dpkg-buildpackage dpkg-parsechangelog git lintian tar; do
     fi
 done
 
+echo "$repository_root"
+
 if [ -n "$(git -C "$repository_root" status --porcelain --untracked-files=normal)" ]; then
     echo "Commit or remove working-tree changes before building a package." >&2
     exit 2
@@ -63,7 +65,6 @@ if [ ! -e "$1" ]; then
     echo "dpkg-buildpackage produced no changes file" >&2
     exit 1
 fi
-lintian "$@"
 
 output_directory=${VAUTH_DEB_OUTPUT_DIR:-$script_directory/out}
 mkdir -p "$output_directory"
@@ -84,3 +85,4 @@ if [ "$artifact_count" -eq 0 ]; then
 fi
 
 echo "Debian package artifacts are in $output_directory"
+lintian "$@"

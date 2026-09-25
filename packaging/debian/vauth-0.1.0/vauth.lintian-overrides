@@ -1,0 +1,9 @@
+# Slint's statically linked skrifa code contains a FreeTypeScaler symbol that
+# matches Lintian's FreeType signature. vauth-ui uses the system FreeType
+# library dynamically through Fontconfig; it does not embed libfreetype.
+embedded-library freetype [usr/bin/vauth-ui]
+
+# These packages are currently intended for local beta testing and the vAuth
+# project repository, not an upload to Debian's archive. An archive upload must
+# file an ITP and replace this override with its Closes entry.
+initial-upload-closes-no-bugs [usr/share/doc/vauth/changelog.Debian.gz:1]

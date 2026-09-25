@@ -1,0 +1,23 @@
+.TH VAUTH-UI 1 "September 2026" "vAuth 0.1.0" "User Commands"
+.SH NAME
+vauth-ui \- graphical interaction agent for vAuth
+.SH SYNOPSIS
+.B vauth-ui
+.SH DESCRIPTION
+.B vauth-ui
+is the unprivileged graphical interaction agent for the vAuth virtual FIDO2
+authenticator. It registers with the vAuth daemon on the system D-Bus and
+displays requests for user presence and user verification.
+.PP
+The agent must run inside the active local login session. It remains hidden
+until the daemon sends an interaction request. Closing an active interaction
+window cancels that interaction; otherwise the program continues waiting for
+later requests.
+.PP
+The UI agent does not authenticate users itself. Passwords are passed through
+a bounded, one-shot file descriptor to the daemon's PAM verifier and are
+discarded after submission.
+.SH OPTIONS
+This program accepts no command-line options.
+.SH SEE ALSO
+.BR vauthctl (1)

@@ -1,0 +1,81 @@
+.TH VAUTHCTL 1 "September 2026" "vAuth 0.1.0" "User Commands"
+.SH NAME
+vauthctl \- manage the vAuth virtual authenticator
+.SH SYNOPSIS
+.B vauthctl
+.B status
+.br
+.B vauthctl
+.B provision
+.br
+.B vauthctl
+.B credentials list
+.RI [ options ]
+.br
+.B vauthctl
+.B credentials delete
+.B --owner
+.I uid
+.B --id
+.I credential-id
+.br
+.B vauthctl
+.B credentials clear --confirm-destroy-all
+.SH DESCRIPTION
+.B vauthctl
+reports vAuth service status and manages the TPM-protected credential store.
+Commands that access the store are re-executed as a restricted transient
+systemd service under the
+.B vauth
+system account. systemd supplies the encrypted database authorization
+credential to that service.
+.SH COMMANDS
+.TP
+.B status
+Report whether the daemon is running, the state of
+.BR vauth.service ,
+and whether a UI agent is available.
+.TP
+.B provision
+Create the TPM-backed database key and rollback counter required by vAuth.
+Run this once before starting the daemon with a new store.
+.TP
+.B credentials list
+List credential metadata. This does not display private key material.
+.TP
+.B credentials delete
+Delete the credential selected by its owner UID and hexadecimal credential ID.
+.TP
+.B credentials clear
+Delete every credential in the store while preserving the TPM security
+objects. The explicit
+.B --confirm-destroy-all
+option is required.
+.SH OPTIONS
+.TP
+.BR -h , " --help"
+Display command help and exit.
+.TP
+.BI "credentials list --owner " uid
+Only list credentials owned by the given numeric UID.
+.TP
+.BI "credentials list --rp " relying-party-id
+Only list credentials for the given relying-party ID.
+.TP
+.BI "credentials delete --owner " uid
+Select the credential owner by numeric UID.
+.TP
+.BI "credentials delete --id " credential-id
+Select a credential by its hexadecimal ID. The ID must contain between 32 and
+2048 hexadecimal characters and have an even length.
+.SH FILES
+.TP
+.I /etc/credstore.encrypted/vauth-db-auth
+systemd-encrypted database authorization credential used for managed
+operations.
+.TP
+.I /var/lib/vauth
+Persistent vAuth state directory.
+.SH SEE ALSO
+.BR systemd-run (1),
+.BR vauth-ui (1)
