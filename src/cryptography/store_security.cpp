@@ -9,6 +9,7 @@
 #include <string_view>
 
 #include <tss2/tss2_common.h>
+#include <tss2/tss2_esys.h>
 #include <tss2/tss2_rc.h>
 #include <openssl/crypto.h>
 
@@ -22,6 +23,25 @@ struct FapiMemoryDeleter {
 
 template<typename T>
 using FapiMemory = std::unique_ptr<T, FapiMemoryDeleter>;
+
+struct EsysContextDeleter {
+    void operator()(ESYS_CONTEXT* context) const noexcept {
+        if(context != nullptr) {
+            Esys_Finalize(&context);
+        }
+    }
+};
+
+struct EsysMemoryDeleter {
+    void operator()(void* memory) const noexcept {
+        Esys_Free(memory);
+    }
+};
+
+using EsysContext = std::unique_ptr<ESYS_CONTEXT, EsysContextDeleter>;
+
+template<typename T>
+using EsysMemory = std::unique_ptr<T, EsysMemoryDeleter>;
 
 constexpr std::size_t KEY_SIZE = 32;
 constexpr std::size_t COUNTER_SIZE = sizeof(uint64_t);
@@ -52,6 +72,33 @@ void encode_uint64(uint64_t value, uint8_t* output) {
         const std::size_t shift = (COUNTER_SIZE - index - 1) * 8;
         output[index] = static_cast<uint8_t>(value >> shift);
     }
+}
+
+uint32_t read_tpm_property(ESYS_CONTEXT* context, TPM2_PT property) {
+    TPMI_YES_NO more_data = TPM2_NO;
+    TPMS_CAPABILITY_DATA* capability_raw = nullptr;
+    const TSS2_RC result = Esys_GetCapability(
+        context,
+        ESYS_TR_NONE,
+        ESYS_TR_NONE,
+        ESYS_TR_NONE,
+        TPM2_CAP_TPM_PROPERTIES,
+        property,
+        1,
+        &more_data,
+        &capability_raw
+    );
+    EsysMemory<TPMS_CAPABILITY_DATA> capability(capability_raw);
+    tss_check(result, "Esys_GetCapability TPM properties");
+    if(
+        capability == nullptr ||
+        capability->capability != TPM2_CAP_TPM_PROPERTIES ||
+        capability->data.tpmProperties.count != 1 ||
+        capability->data.tpmProperties.tpmProperty[0].property != property
+    ) {
+        throw std::runtime_error("TPM returned an invalid property response");
+    }
+    return capability->data.tpmProperties.tpmProperty[0].value;
 }
 
 } // namespace
@@ -119,6 +166,7 @@ TSS2_RC FapiStoreSecurity::authorize(
 }
 
 void FapiStoreSecurity::provision() {
+    require_unprotected_owner_hierarchy();
     counterOrigin_.reset();
     const TSS2_RC counter_result = Fapi_CreateNv(
         context_,
@@ -197,6 +245,49 @@ void FapiStoreSecurity::provision() {
             );
         }
         throw;
+    }
+}
+
+void FapiStoreSecurity::require_unprotected_owner_hierarchy() {
+    TSS2_TCTI_CONTEXT* transport = tcti();
+    ESYS_CONTEXT* context_raw = nullptr;
+    const TSS2_RC initialize_result = Esys_Initialize(
+        &context_raw,
+        transport,
+        nullptr
+    );
+    EsysContext context(context_raw);
+    tss_check(
+        initialize_result,
+        "Esys_Initialize provisioning preflight"
+    );
+    if(context == nullptr) {
+        throw std::runtime_error(
+            "Esys_Initialize provisioning preflight returned no context"
+        );
+    }
+
+    const uint32_t startup_clear = read_tpm_property(
+        context.get(),
+        TPM2_PT_STARTUP_CLEAR
+    );
+    if((startup_clear & TPMA_STARTUP_CLEAR_SHENABLE) == 0) {
+        throw std::runtime_error(
+            "TPM Owner hierarchy is disabled; vAuth provisioning cannot "
+            "create the rollback counter"
+        );
+    }
+
+    const uint32_t permanent = read_tpm_property(
+        context.get(),
+        TPM2_PT_PERMANENT
+    );
+    if((permanent & TPMA_PERMANENT_OWNERAUTHSET) != 0) {
+        throw std::runtime_error(
+            "TPM Owner hierarchy has a non-empty authorization; vAuth "
+            "provisioning requires an unprotected Owner hierarchy to create "
+            "the rollback counter"
+        );
     }
 }
 

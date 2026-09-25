@@ -655,6 +655,28 @@ void verify_tpm_clear_is_rejected(const std::string& authorization) {
     }
 }
 
+void verify_protected_owner_is_rejected(const std::string& authorization) {
+    FapiStoreSecurity security(authorization);
+    const auto key_before = security.unseal_key();
+    const uint64_t counter_before = security.read();
+    const std::string error = expect_rejected<std::runtime_error>(
+        [&] { security.provision(); },
+        "Provisioning accepted a protected TPM Owner hierarchy"
+    );
+    if(error.find("TPM Owner hierarchy has a non-empty authorization") ==
+       std::string::npos) {
+        throw std::runtime_error(
+            "Protected TPM Owner hierarchy produced an unclear error: " +
+            error
+        );
+    }
+    if(security.unseal_key() != key_before || security.read() != counter_before) {
+        throw std::runtime_error(
+            "Owner hierarchy preflight changed existing vAuth TPM objects"
+        );
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -671,6 +693,10 @@ int main(int argc, char** argv) {
         } else if(mode == "verify-tpm-clear" && argc == 3) {
             runner.run("verify_tpm_clear_is_rejected", [&] {
                 verify_tpm_clear_is_rejected(argv[2]);
+            });
+        } else if(mode == "verify-protected-owner" && argc == 3) {
+            runner.run("verify_protected_owner_is_rejected", [&] {
+                verify_protected_owner_is_rejected(argv[2]);
             });
         } else {
             throw std::invalid_argument("Invalid integration test arguments");

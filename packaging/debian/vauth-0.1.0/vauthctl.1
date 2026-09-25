@@ -38,7 +38,12 @@ and whether a UI agent is available.
 .TP
 .B provision
 Create the TPM-backed database key and rollback counter required by vAuth.
-Run this once before starting the daemon with a new store.
+Run this once before starting the daemon with a new store. Creation of the
+rollback counter requires a usable TPM Owner hierarchy. If its authorization
+is unavailable, as is normally the case after Windows 10 version 1607 or newer
+has provisioned the TPM, a read-only preflight fails before either vAuth object
+is created. This command never clears or reprovisions the TPM and provides no
+rollback-unprotected mode.
 .TP
 .B credentials list
 List credential metadata. This does not display private key material.

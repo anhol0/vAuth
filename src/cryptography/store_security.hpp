@@ -29,6 +29,7 @@ public:
         "/nv/Owner/vauth-db-generation";
 
 private:
+    void require_unprotected_owner_hierarchy();
     [[nodiscard]] uint64_t read_raw_counter();
 
     static TSS2_RC authorize(

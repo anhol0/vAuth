@@ -153,12 +153,14 @@ add_library(vauth_storage
 
 target_include_directories(vauth_storage PUBLIC
     ${SOURCE_DIR}
+    ${TSS2_ESYS_INCLUDE_DIRS}
     ${TSS2_FAPI_INCLUDE_DIRS}
     ${TSS2_RC_INCLUDE_DIRS}
 )
 
 target_link_libraries(vauth_storage PUBLIC
     nlohmann_json::nlohmann_json
+    ${TSS2_ESYS_LIBRARIES}
     ${TSS2_FAPI_LIBRARIES}
     ${TSS2_RC_LIBRARIES}
     vauth_crypto

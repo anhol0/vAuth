@@ -51,6 +51,15 @@ a usable TPM, site-specific FAPI configuration, and an administrator-selected
 recovery secret, and provisioning failure must leave package installation
 successful and diagnosable.
 
+Provisioning also requires permission to create an Owner-authorized TPM NV
+index. Windows 10 version 1607 and newer normally provisions a TPM with a
+random Owner authorization and discards it. If that authorization remains
+active and is unavailable, `vauthctl provision` must fail: packages must not
+retry by clearing or reprovisioning the TPM, and must not offer or select a
+rollback-unprotected configuration. Package documentation should direct the
+administrator to evaluate all existing TPM consumers and their recovery
+procedures rather than presenting TPM clearing as a routine vAuth setup step.
+
 `vauth-ui` is launched by the desktop user. vAuth deliberately installs no XDG
 autostart entry or systemd user unit: users of different desktop environments
 and window managers decide how and when their interaction agent starts.

@@ -127,11 +127,36 @@ with `-DVAUTH_FAPI_SYSTEM_DIR=/absolute/path`.
 
 ## First setup
 
-Provision TPM2-TSS FAPI once, then create vAuth's encrypted authorization
-credential and TPM objects:
+vAuth requires an already usable TPM2-TSS FAPI environment. Do not run
+`tss2_provision` over an existing FAPI environment: it changes machine-wide
+TPM state and may require the current TPM Owner authorization.
+
+> [!IMPORTANT]
+> Windows 10 version 1607 and newer normally provisions the TPM with a random
+> high-entropy Owner authorization and then discards that value. On a TPM still
+> in that state, FAPI may be able to use an existing unprotected storage root
+> key, but vAuth cannot create its mandatory `/nv/Owner/vauth-db-generation`
+> rollback counter. `vauthctl provision` checks this before creating either
+> vAuth object and fails closed. vAuth does not offer a mode without rollback
+> protection and never clears the TPM automatically.
+>
+> Clearing the TPM destroys TPM-protected material and can make BitLocker,
+> Windows Hello, and other applications' keys unusable. Only clear it as a
+> deliberate machine-administration operation after following the recovery and
+> backup procedures for every TPM consumer. See Microsoft's
+> [TPM Owner authorization documentation](https://learn.microsoft.com/en-us/windows/security/hardware-security/tpm/change-the-tpm-owner-password).
+
+If FAPI has not been provisioned and the TPM Owner hierarchy is usable,
+provision it before continuing:
 
 ```sh
 sudo tss2_provision
+```
+
+After confirming that FAPI is usable and permits creation of Owner-authorized
+NV indices, create vAuth's encrypted authorization credential and TPM objects:
+
+```sh
 sudo install -d -m 0700 /etc/credstore.encrypted
 systemd-ask-password "Choose a vAuth recovery secret:" | \
   sudo systemd-creds encrypt --name=vauth-db-auth - \

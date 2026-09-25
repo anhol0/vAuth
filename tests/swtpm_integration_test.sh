@@ -66,6 +66,11 @@ TSS2_FAPICONF="$test_directory/fapi-config.json" \
     correct-horse-battery \
     incorrect-authorization
 
+tpm2_changeauth -c owner protected-owner -T "$tcti"
+TSS2_FAPICONF="$test_directory/fapi-config.json" \
+    "$test_binary" verify-protected-owner correct-horse-battery
+tpm2_changeauth -c owner -p protected-owner -T "$tcti"
+
 tpm2_flushcontext -t -T "$tcti"
 tpm2_clear -c p -T "$tcti"
 TSS2_FAPICONF="$test_directory/fapi-config.json" \

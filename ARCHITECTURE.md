@@ -273,6 +273,22 @@ Both the sealed object and NV counter are created with the same supplied FAPI
 authorization. `FapiStoreSecurity` provides that authorization only for the two
 known object paths.
 
+Creation of the NV counter is additionally authorized by the TPM Owner
+(Storage) hierarchy. Its authorization is machine-wide and distinct from
+`vauth-db-auth`, which protects only vAuth's two FAPI objects. vAuth requires an
+existing FAPI environment in which the Owner hierarchy is usable for NV-index
+creation; it does not take ownership of, reprovision, or clear the TPM.
+
+Windows 10 version 1607 and newer normally assigns a random high-entropy Owner
+authorization during TPM provisioning and discards it. If that Windows-created
+authorization is still active and unavailable, vAuth provisioning cannot
+create `/nv/Owner/vauth-db-generation` even when an existing unprotected SRK
+allows child-key creation. This configuration is unsupported. vAuth fails
+closed rather than silently disabling rollback protection, and installation or
+provisioning must never clear the TPM automatically. Clearing it can invalidate
+TPM-protected data belonging to BitLocker, Windows Hello, and unrelated
+applications.
+
 At startup, the daemon uses the authorization to unseal the database key. That
 key encrypts the store and derives the authorizations protecting the transient
 TPM parent and per-credential keys. The authorization is therefore required to
