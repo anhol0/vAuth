@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="899.5966 259.7817 408.38 92.586" width="408.38px" height="92.586px"><defs><linearGradient id="_Безымянный_градиент_85" data-name="Безымянный градиент 85" x1="894.94" y1="254.03" x2="903.31" y2="246.57" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0380aa"/><stop offset="0.12" stop-color="#08899e"/><stop offset="0.7" stop-color="#20b26a"/><stop offset="0.99" stop-color="#2ac257"/><stop offset="0.99" stop-color="#37c662"/><stop offset="0.99" stop-color="#51ce7a"/><stop offset="0.99" stop-color="#67d58d"/><stop offset="0.99" stop-color="#78da9c"/><stop offset="0.99" stop-color="#84dea7"/><stop offset="0.99" stop-color="#8be0ad"/><stop offset="1" stop-color="#8de1af"/></linearGradient><linearGradient id="_Безымянный_градиент_89" data-name="Безымянный градиент 89" x1="910.54" y1="262.44" x2="921.97" y2="253.43" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0380aa"/><stop offset="0.12" stop-color="#08899e"/><stop offset="0.7" stop-color="#20b26a"/><stop offset="0.99" stop-color="#2ac257"/></linearGradient><linearGradient id="_Безымянный_градиент_85-2" data-name="Безымянный градиент 85" x1="900.9" y1="272.91" x2="909.39" y2="265.49" href="#_Безымянный_градиент_85"/><linearGradient id="_Безымянный_градиент_85-3" data-name="Безымянный градиент 85" x1="920.39" y1="262.72" x2="1008.23" y2="197.49" href="#_Безымянный_градиент_85"/><style>
+      .cls-1 {
+        fill: url(#_Безымянный_градиент_15);
+      }
+
+      .cls-2 {
+        fill: url(#_Безымянный_градиент_85-3);
+      }
+
+      .cls-3 {
+        letter-spacing: -.02em;
+      }
+
+      .cls-4 {
+        fill: url(#_Безымянный_градиент_92-2);
+      }
+
+      .cls-5 {
+        fill: url(#_Новый_узор_3);
+      }
+
+      .cls-6 {
+        fill: #fff;
+      }
+
+      .cls-7 {
+        font-size: 47.65px;
+      }
+
+      .cls-7, .cls-8 {
+        stroke: #000;
+        stroke-width: .5px;
+      }
+
+      .cls-7, .cls-8, .cls-9 {
+        stroke-miterlimit: 10;
+      }
+
+      .cls-7, .cls-10 {
+        font-family: MyriadPro-Regular, 'Myriad Pro';
+      }
+
+      .cls-11 {
+        letter-spacing: -.01em;
+      }
+
+      .cls-12, .cls-9 {
+        fill: none;
+      }
+
+      .cls-8 {
+        fill: #0a1323;
+      }
+
+      .cls-13 {
+        fill: #10202e;
+      }
+
+      .cls-14 {
+        letter-spacing: -.01em;
+      }
+
+      .cls-15 {
+        fill: url(#_Безымянный_градиент_96);
+      }
+
+      .cls-16 {
+        fill: url(#_Новый_узор_2);
+      }
+
+      .cls-17 {
+        fill: url(#_Безымянный_градиент_89);
+      }
+
+      .cls-18 {
+        fill: url(#_Безымянный_градиент_85-2);
+      }
+
+      .cls-19 {
+        fill: url(#_Безымянный_градиент_85);
+      }
+
+      .cls-20 {
+        fill: url(#_Безымянный_градиент_105);
+      }
+
+      .cls-21 {
+        letter-spacing: 0em;
+      }
+
+      .cls-22 {
+        fill: url(#_Безымянный_градиент_78-2);
+      }
+
+      .cls-23 {
+        fill: #0b1525;
+      }
+
+      .cls-10 {
+        font-size: 12px;
+      }
+
+      .cls-24 {
+        fill: url(#_Безымянный_градиент_92);
+      }
+
+      .cls-25 {
+        font-family: CascadiaCode-Regular, 'Cascadia Code';
+        font-size: 20.77px;
+        font-variation-settings: 'wght' 400;
+        letter-spacing: .2em;
+      }
+
+      .cls-9 {
+        stroke: #0b1525;
+        stroke-width: 2px;
+      }
+
+      .cls-26 {
+        letter-spacing: .02em;
+      }
+
+      .cls-27 {
+        fill: #0470cb;
+      }
+
+      .cls-28 {
+        fill: url(#_Безымянный_градиент_78);
+      }
+    </style></defs><g transform="matrix(1, 0, 0, 1, 36.152630805969245, 66.9337043762207)" id="object-8"><rect x="863.444" y="192.848" width="408.38" height="92.586" style="stroke: rgb(0, 0, 0); fill: rgb(239, 239, 239);" rx="46.293" ry="46.293"/><g><rect class="cls-19" x="893.06" y="247.31" width="8.69" height="9.03"/><rect class="cls-17" x="908.4" y="253.65" width="11.46" height="11.91"/><rect class="cls-18" x="898.88" y="265.56" width="9.52" height="9.89"/><path class="cls-2" d="M1003.55,214.49c-8.85-8.48-23.61-15.88-45.49-13.54-21.88,2.35-49.66,40.79-49.66,40.79h11.46v11.91h11.46v11.91h-11.46v11.91h27.08c2.34-7.49,4.69-11.91,4.69-11.91,0,0,5.73-14.08,23.26-15.88,17.54-1.8,32.29-10.65,36.11-16.24,3.82-5.59,1.39-10.47-7.47-18.95ZM977.52,223.02c-3.27,0-5.92-2.76-5.92-6.16s2.65-6.16,5.92-6.16,5.92,2.76,5.92,6.16-2.65,6.16-5.92,6.16Z"/></g><text class="cls-25" style="font-family: UnDotum; font-size: 20.8px; letter-spacing: 4.15px; white-space: pre;" x="973.636" y="272.058">virtual authenticator</text><text class="cls-7" style="font-family: UnDotum; font-size: 47.7px; white-space: pre;" x="1050.61" y="246.496">vAuth</text></g></svg>
