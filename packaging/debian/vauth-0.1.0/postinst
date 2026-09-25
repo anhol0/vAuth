@@ -1,0 +1,26 @@
+#!/bin/sh
+set -e
+
+#DEBHELPER#
+
+if [ "$1" = "configure" ] && [ -z "${DPKG_ROOT:-}" ]; then
+    if ! modprobe --use-blacklist uhid; then
+        echo "vauth: warning: could not load the uhid kernel module" >&2
+    elif [ ! -e /sys/class/misc/uhid ]; then
+        echo "vauth: warning: uhid is unavailable in the running kernel" >&2
+    fi
+
+    if command -v udevadm >/dev/null 2>&1; then
+        if ! udevadm control --reload-rules; then
+            echo "vauth: warning: could not reload udev rules" >&2
+        fi
+        if [ -e /sys/class/misc/uhid ]; then
+            if ! udevadm trigger --action=add /sys/class/misc/uhid || \
+               ! udevadm settle; then
+                echo "vauth: warning: could not apply permissions to /dev/uhid" >&2
+            fi
+        fi
+    fi
+fi
+
+exit 0

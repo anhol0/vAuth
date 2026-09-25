@@ -5,13 +5,16 @@ formats may use their native helper tools, but must preserve these behaviors.
 
 ## Installation
 
-A package installs the binaries, systemd units, sysusers declaration, udev
-rule, D-Bus policy, PAM policy, project license, and third-party notices at the
-paths documented in [ARCHITECTURE.md](../ARCHITECTURE.md).
+A package installs the binaries, systemd units, sysusers declaration,
+modules-load declaration, udev rule, D-Bus policy, PAM policy, project license,
+and third-party notices at the paths documented in
+[ARCHITECTURE.md](../ARCHITECTURE.md).
 
 Installation may perform only non-secret system integration:
 
 - create or update the `vauth` system account from `vauth.conf`;
+- arrange for the `uhid` kernel module to load at boot and attempt to load it
+  immediately on a live installation;
 - reload systemd units, udev rules, and the system-bus policy; and
 - apply the udev rule to `/dev/uhid` when the package manager can do so safely.
 

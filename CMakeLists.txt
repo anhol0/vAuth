@@ -30,6 +30,12 @@ set(
     "Directory for udev rules"
 )
 set(
+    VAUTH_MODULES_LOAD_DIR
+    "lib/modules-load.d"
+    CACHE PATH
+    "Directory for systemd-modules-load declarations"
+)
+set(
     VAUTH_DBUS_SYSTEM_POLICY_DIR
     "/usr/share/dbus-1/system.d"
     CACHE PATH
@@ -231,6 +237,11 @@ install(
 install(
     FILES config/70-vauth.rules
     DESTINATION "${VAUTH_UDEV_RULES_DIR}"
+)
+install(
+    FILES config/vauth.modules-load.conf
+    DESTINATION "${VAUTH_MODULES_LOAD_DIR}"
+    RENAME vauth.conf
 )
 install(
     FILES config/org.lamellix.vAuth.conf

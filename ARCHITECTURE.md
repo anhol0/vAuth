@@ -415,6 +415,8 @@ executables, policy, configuration, and mutable state.
 │   └── vauth-pam-verifier@.service
 ├── lib/sysusers.d/
 │   └── vauth.conf
+├── lib/modules-load.d/
+│   └── vauth.conf
 ├── lib/udev/rules.d/
 │   └── 70-vauth.rules
 └── share/dbus-1/system.d/
@@ -438,6 +440,7 @@ The packaged files have the following roles:
 | `/usr/lib/systemd/system/vauth-pam-verifier.socket` | `root:root`, mode `0644` | Root-owned verifier activation socket definition |
 | `/usr/lib/systemd/system/vauth-pam-verifier@.service` | `root:root`, mode `0644` | One root broker instance per accepted connection |
 | `/usr/lib/sysusers.d/vauth.conf` | `root:root`, mode `0644` | Declares the non-login `vauth` system identity; packaging also grants the required TPM group membership |
+| `/usr/lib/modules-load.d/vauth.conf` | `root:root`, mode `0644` | Loads the required `uhid` kernel module during boot |
 | `/usr/lib/udev/rules.d/70-vauth.rules` | `root:root`, mode `0644` | Grants the `vauth` identity access to `/dev/uhid`; systemd device policy remains an additional restriction |
 | `/usr/share/dbus-1/system.d/org.lamellix.vAuth.conf` | `root:root`, mode `0644` | Grants the daemon its well-known name and exposes only the documented agent/status methods |
 | `/etc/vauth/config/vauth` | root-managed, not writable by `vauth` | Isolated PAM policy selected by the root verifier |

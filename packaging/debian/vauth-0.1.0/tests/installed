@@ -10,9 +10,11 @@ test -f /usr/lib/systemd/system/vauth-pam-verifier.socket
 test -f /usr/lib/systemd/system/vauth-pam-verifier@.service
 test -f /usr/lib/sysusers.d/vauth.conf
 test -f /usr/lib/udev/rules.d/70-vauth.rules
+test -f /usr/lib/modules-load.d/vauth.conf
 test -f /usr/share/dbus-1/system.d/org.lamellix.vAuth.conf
 test -f /etc/vauth/config/vauth
 test -f /usr/share/doc/vauth/copyright
+grep -Fxq uhid /usr/lib/modules-load.d/vauth.conf
 
 if ! getent passwd vauth >/dev/null; then
     echo "the vauth system user was not created during installation" >&2

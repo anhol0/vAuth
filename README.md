@@ -113,7 +113,10 @@ ctest --test-dir build --output-on-failure
 sudo cmake --install build
 
 sudo systemd-sysusers /usr/lib/sysusers.d/vauth.conf
+sudo modprobe --use-blacklist uhid
 sudo udevadm control --reload-rules
+sudo udevadm trigger --action=add /sys/class/misc/uhid
+sudo udevadm settle
 sudo systemctl daemon-reload
 sudo busctl call org.freedesktop.DBus /org/freedesktop/DBus \
   org.freedesktop.DBus ReloadConfig

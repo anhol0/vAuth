@@ -35,6 +35,7 @@ Depends:
  ${misc:Depends},
  ${shlibs:Depends},
  default-dbus-system-bus | dbus-system-bus,
+ kmod,
  systemd (>= 250),
  udev,
 Recommends:

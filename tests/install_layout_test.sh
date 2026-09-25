@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 14 ]]; then
+if [[ $# -ne 15 ]]; then
     echo "install_layout_test.sh received an unexpected argument count" >&2
     exit 2
 fi
@@ -15,11 +15,12 @@ libexecdir=$6
 systemd_unit_dir=$7
 sysusers_dir=$8
 udev_rules_dir=$9
-dbus_policy_dir=${10}
-pam_config_dir=${11}
-install_ui=${12}
-full_libexecdir=${13}
-docdir=${14}
+modules_load_dir=${10}
+dbus_policy_dir=${11}
+pam_config_dir=${12}
+install_ui=${13}
+full_libexecdir=${14}
+docdir=${15}
 
 staging_directory=$(mktemp -d /tmp/vauth-install-layout-test.XXXXXX)
 cleanup() {
@@ -47,6 +48,7 @@ socket_unit=$(staged_path "$systemd_unit_dir/vauth-pam-verifier.socket")
 broker_unit=$(staged_path "$systemd_unit_dir/vauth-pam-verifier@.service")
 sysusers=$(staged_path "$sysusers_dir/vauth.conf")
 udev_rule=$(staged_path "$udev_rules_dir/70-vauth.rules")
+modules_load=$(staged_path "$modules_load_dir/vauth.conf")
 dbus_policy=$(staged_path "$dbus_policy_dir/org.lamellix.vAuth.conf")
 pam_policy=$(staged_path "$pam_config_dir/vauth")
 project_license=$(staged_path "$docdir/LICENSE")
@@ -70,6 +72,7 @@ for policy in \
     "$broker_unit" \
     "$sysusers" \
     "$udev_rule" \
+    "$modules_load" \
     "$dbus_policy" \
     "$pam_policy" \
     "$project_license" \
@@ -89,6 +92,7 @@ grep -Fxq "SocketGroup=vauth" "$socket_unit"
 grep -Eq '^u[[:space:]]+vauth[[:space:]]' "$sysusers"
 grep -Eq '^m[[:space:]]+vauth[[:space:]]+tss$' "$sysusers"
 grep -q 'KERNEL=="uhid"' "$udev_rule"
+grep -Fxq 'uhid' "$modules_load"
 grep -Fq '<policy user="vauth">' "$dbus_policy"
 grep -Fq '<allow own="org.lamellix.vAuth"/>' "$dbus_policy"
 grep -Fq 'pam_fprintd.so' "$pam_policy"
