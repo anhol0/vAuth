@@ -189,7 +189,6 @@ add_executable(${DAEMON_TARGET}
 
 target_compile_definitions(${DAEMON_TARGET} PRIVATE
     $<$<CONFIG:Debug>:DEBUG>
-    $<$<CONFIG:Debug>:VAUTH_DEBUG_PAM_CONFIG_DIR="${PROJECT_SOURCE_DIR}/config">
     VAUTH_INSTALLED_PAM_CONFIG_DIR="${VAUTH_PAM_CONFIG_DIR}"
 )
 

@@ -202,18 +202,18 @@ std::vector<uint8_t> CTAPGetAssertionRequest::generate_single_credential_payload
         credential.private_blob
     );
 
-    // If there is only 1 credential matched by the authenticator
-    // Omit fields 0x01 and 0x04
-    // If allowList was empty or > 1 credential was found, include these two fields must be included
-    const StoredCredential* descriptor =
-        allowList.size() != 1 ? &credential : nullptr;
+    // CTAP 2.0 permits omitting the descriptor for a one-entry allowList, but
+    // Firefox's WebAuthn bridge requires it to construct the returned
+    // credential. User information remains unnecessary in that case.
+    const bool include_user = allowList.size() != 1;
 
     // Generating the payload
     auto payload = build_authenticatorGetAssertion_response(
         authData,
         signature,
         userVerified,
-        descriptor,
+        credential,
+        include_user,
         number_of_credentials
     );
     cancellation_point(stop);

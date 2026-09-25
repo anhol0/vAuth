@@ -128,13 +128,8 @@ int main(int argc, char **argv) {
                     "pam-verifier must run with root privileges"
                 );
             }
-#ifdef DEBUG
-            constexpr std::string_view pam_configuration =
-                VAUTH_DEBUG_PAM_CONFIG_DIR;
-#else
             constexpr std::string_view pam_configuration =
                 VAUTH_INSTALLED_PAM_CONFIG_DIR;
-#endif
             return vauth::uv::run_pam_verifier_service(
                 activated_verifier_socket(),
                 "vauth",

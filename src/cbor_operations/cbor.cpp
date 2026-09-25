@@ -259,37 +259,36 @@ std::vector<uint8_t> build_authenticatorGetAssertion_response(
     std::span<const uint8_t> auth_data,
     std::span<const uint8_t> signature,
     bool uv,
-    const StoredCredential* credential,
+    const StoredCredential& credential,
+    bool include_user,
     std::optional<uint32_t> number_of_credentials
 ) {
-    const std::size_t map_size = 2 +
-        (credential != nullptr ? 2 : 0) +
+    const std::size_t map_size = 3 +
+        (include_user ? 1 : 0) +
         (number_of_credentials.has_value() ? 1 : 0);
 
     return encode_cbor(true, [&](CborEncoder& encoder) {
         CborEncoder map;
         check(cbor_encoder_create_map(&encoder, &map, map_size));
 
-        if(credential != nullptr) {
-            check(cbor_encode_uint(&map, 0x01));
-            CborEncoder credential_map;
-            check(cbor_encoder_create_map(&map, &credential_map, 2));
-            check(cbor_encode_text_stringz(&credential_map, "id"));
-            check(cbor_encode_byte_string(
-                &credential_map,
-                credential->id.data(),
-                credential->id.size()
-            ));
-            check(cbor_encode_text_stringz(&credential_map, "type"));
-            check(cbor_encode_text_stringz(
-                &credential_map,
-                "public-key"
-            ));
-            check(cbor_encoder_close_container_checked(
-                &map,
-                &credential_map
-            ));
-        }
+        check(cbor_encode_uint(&map, 0x01));
+        CborEncoder credential_map;
+        check(cbor_encoder_create_map(&map, &credential_map, 2));
+        check(cbor_encode_text_stringz(&credential_map, "id"));
+        check(cbor_encode_byte_string(
+            &credential_map,
+            credential.id.data(),
+            credential.id.size()
+        ));
+        check(cbor_encode_text_stringz(&credential_map, "type"));
+        check(cbor_encode_text_stringz(
+            &credential_map,
+            "public-key"
+        ));
+        check(cbor_encoder_close_container_checked(
+            &map,
+            &credential_map
+        ));
 
         check(cbor_encode_uint(&map, 0x02));
         check(cbor_encode_byte_string(
@@ -305,7 +304,7 @@ std::vector<uint8_t> build_authenticatorGetAssertion_response(
             signature.size()
         ));
 
-        if(credential != nullptr) {
+        if(include_user) {
             check(cbor_encode_uint(&map, 0x04));
             CborEncoder user_map;
             check(cbor_encoder_create_map(
@@ -316,18 +315,18 @@ std::vector<uint8_t> build_authenticatorGetAssertion_response(
             check(cbor_encode_text_stringz(&user_map, "id"));
             check(cbor_encode_byte_string(
                 &user_map,
-                credential->userId.data(),
-                credential->userId.size()
+                credential.userId.data(),
+                credential.userId.size()
             ));
 
             if(uv) {
                 check(cbor_encode_text_stringz(&user_map, "name"));
-                encode_text(user_map, credential->userName);
+                encode_text(user_map, credential.userName);
                 check(cbor_encode_text_stringz(
                     &user_map,
                     "displayName"
                 ));
-                encode_text(user_map, credential->userDisplayName);
+                encode_text(user_map, credential.userDisplayName);
             }
             check(cbor_encoder_close_container_checked(&map, &user_map));
         }

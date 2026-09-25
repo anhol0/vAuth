@@ -301,17 +301,23 @@ StoredCredential assertion_credential() {
     };
 }
 
-void test_minimal_assertion_response() {
+void test_assertion_always_contains_credential_descriptor() {
+    const auto credential = assertion_credential();
     const std::vector<uint8_t> auth_data{0x10};
     const std::vector<uint8_t> signature{0x20};
     const auto fields = decode_assertion(
         build_authenticatorGetAssertion_response(
             auth_data,
             signature,
+            false,
+            credential,
             false
         )
     );
-    CHECK(fields.keys == std::set<uint64_t>({2, 3}));
+    CHECK(fields.keys == std::set<uint64_t>({1, 2, 3}));
+    CHECK(fields.credential_id == credential.id);
+    CHECK(fields.credential_type == "public-key");
+    CHECK(fields.user_id.empty());
     CHECK(fields.auth_data == auth_data);
     CHECK(fields.signature == signature);
 }
@@ -326,7 +332,8 @@ void test_assertion_identity_and_map_sizes() {
             auth_data,
             signature,
             false,
-            &credential,
+            credential,
+            true,
             0
         )
     );
@@ -344,7 +351,8 @@ void test_assertion_identity_and_map_sizes() {
             auth_data,
             signature,
             true,
-            &credential,
+            credential,
+            true,
             2
         )
     );
@@ -389,7 +397,7 @@ int main() {
         {"test_get_info_response", test_get_info_response},
         {"test_cose_key", test_cose_key},
         {"test_make_credential_response", test_make_credential_response},
-        {"test_minimal_assertion_response", test_minimal_assertion_response},
+        {"test_assertion_always_contains_credential_descriptor", test_assertion_always_contains_credential_descriptor},
         {"test_assertion_identity_and_map_sizes", test_assertion_identity_and_map_sizes},
         {"test_encoding_failures_are_typed", test_encoding_failures_are_typed}
     };

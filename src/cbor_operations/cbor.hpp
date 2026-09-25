@@ -35,6 +35,7 @@ std::vector<uint8_t> build_authenticatorGetAssertion_response(
     std::span<const uint8_t> auth_data,
     std::span<const uint8_t> signature,
     bool uv,
-    const StoredCredential* credential = nullptr,
+    const StoredCredential& credential,
+    bool include_user,
     std::optional<uint32_t> number_of_credentials = std::nullopt
 );
