@@ -28,8 +28,6 @@ for command_name in dpkg-buildpackage dpkg-parsechangelog git lintian tar; do
     fi
 done
 
-echo "$repository_root"
-
 if [ -n "$(git -C "$repository_root" status --porcelain --untracked-files=normal)" ]; then
     echo "Commit or remove working-tree changes before building a package." >&2
     exit 2
