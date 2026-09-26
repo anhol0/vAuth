@@ -254,4 +254,5 @@ Custom UI authors can use the documented [agent API](docs/agent-api.md) and
 [examples](examples/agents/). Distribution maintainers should follow the
 [packaging policy](docs/packaging.md). vAuth is licensed under the terms in
 [LICENSE](LICENSE). Library acknowledgements and license information are in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Please report vulnerabilities
+privately according to the [security policy]([SECURITY.md](https://github.com/lamellixlabs/vAuth/blob/main/SECURITY.md).
