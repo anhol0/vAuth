@@ -12,6 +12,20 @@
 ![TPM](https://img.shields.io/badge/TPM-2.0-blue)
 ![Status](https://img.shields.io/badge/status-public_beta-blue)
 
+> [!WARNING]
+> **Public beta limitations**
+>
+> - The first prebuilt package targets Debian 13 on amd64.
+> - vAuth requires systemd, logind, UHID, and a TPM 2.0 with a usable Owner
+>   hierarchy; there is no software-only fallback.
+> - Only password and fingerprint PAM verification are tested. Other modules
+>   may require administrator-provided service sandbox changes.
+> - The interaction agent is globally single-agent and intended for a
+>   single-seat system.
+> - Installation does not provision the TPM, enable services, or configure UI
+>   autostart.
+> - In Firefox, cancel through the browser prompt rather than `vauth-ui`.
+> - Clearing the TPM makes existing vAuth credentials unrecoverable.
 
 ## What is it and why would you need it?
 
@@ -25,15 +39,10 @@ are confirmed through a small desktop interface.
 It is useful when you want machine-bound passkeys without carrying a separate
 USB authenticator. vAuth uses the TPM for credential keys, PAM for user
 verification, and an encrypted local credential store. A fingerprint reader is
-optional; password verification remains available through PAM. Even though  
-the officially tested authentication methods include only password and fingerprint,  
-other PAM modules may additional set up and are not part of the beta's tested   
-configuration.
-
-> [!IMPORTANT]
-> vAuth is beta software. Installation intentionally does not provision TPM
-> objects, create secrets, or enable services; complete the documented setup
-> before enabling the daemon.
+optional; password verification remains available through PAM. Although the
+officially tested authentication methods include only password and fingerprint,
+other PAM modules may require additional setup and are not part of the beta's
+tested configuration.
 
 ## Requirements
 
@@ -140,6 +149,9 @@ TPM state and may require the current TPM Owner authorization.
 > rollback counter. `vauthctl provision` checks this before creating either
 > vAuth object and fails closed. vAuth does not offer a mode without rollback
 > protection and never clears the TPM automatically.
+> The corresponding diagnostic is `TPM Owner hierarchy has a non-empty
+> authorization`; it identifies this unsupported TPM state rather than a
+> damaged TPM.
 >
 > Clearing the TPM destroys TPM-protected material and can make BitLocker,
 > Windows Hello, and other applications' keys unusable. Only clear it as a
