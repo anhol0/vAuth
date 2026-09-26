@@ -167,6 +167,53 @@ it once. Save it securely and confirm the prompt; vAuth then encrypts it with
 `systemd-creds` before creating the TPM objects. Losing it—or clearing the
 TPM—makes existing vAuth credentials unrecoverable.
 
+### Recovering the encrypted authorization
+
+If `/etc/credstore.encrypted/vauth-db-auth` is lost or corrupted but the
+authorization shown during provisioning was saved, recreate the systemd
+credential envelope without reprovisioning the TPM objects or credential
+database:
+
+```bash
+(
+    set -euo pipefail
+    sudo systemctl stop vauth.service
+    sudo install -d -o root -g root -m 0700 /etc/credstore.encrypted
+
+    read -r -s -p "Paste saved vAuth authorization: " VAUTH_DB_AUTH
+    printf '\n'
+    while [[ ! $VAUTH_DB_AUTH =~ ^[A-Za-z0-9_-]{32}$ ]]; do
+        echo "The authorization must be 32 base64url characters." >&2
+        read -r -s -p "Paste saved vAuth authorization: " VAUTH_DB_AUTH
+        printf '\n'
+    done
+
+    printf '%s' "$VAUTH_DB_AUTH" |
+        sudo systemd-creds encrypt \
+            --force \
+            --with-key=host+tpm2 \
+            --name=vauth-db-auth \
+            - /etc/credstore.encrypted/.vauth-db-auth.recovered
+    unset VAUTH_DB_AUTH
+
+    sudo systemd-creds decrypt \
+        --name=vauth-db-auth \
+        /etc/credstore.encrypted/.vauth-db-auth.recovered \
+        - >/dev/null
+    sudo chown root:root /etc/credstore.encrypted/.vauth-db-auth.recovered
+    sudo chmod 0600 /etc/credstore.encrypted/.vauth-db-auth.recovered
+    sudo mv -fT \
+        /etc/credstore.encrypted/.vauth-db-auth.recovered \
+        /etc/credstore.encrypted/vauth-db-auth
+    sudo systemctl start vauth.service
+)
+```
+
+The saved authorization must be exact, and the original TPM/FAPI objects must
+still exist on the same TPM. This procedure only replaces systemd's encrypted
+envelope; it cannot recover credentials after the TPM was cleared or the FAPI
+objects or encrypted credential database were lost.
+
 Start `vauth-ui` in the desktop session and check the installation:
 
 ```sh
