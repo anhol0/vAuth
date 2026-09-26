@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "remove" ] && [ -z "${DPKG_ROOT:-}" ]; then
+    if [ -d /run/systemd/system ]; then
+        if ! deb-systemd-invoke stop vauth.service vauth-pam-verifier.socket; then
+            echo "vauth: warning: could not stop system services during removal" >&2
+        fi
+    fi
+
+    if command -v deb-systemd-helper >/dev/null 2>&1; then
+        deb-systemd-helper disable \
+            vauth.service vauth-pam-verifier.socket >/dev/null || true
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0

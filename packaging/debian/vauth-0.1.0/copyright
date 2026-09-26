@@ -3,11 +3,10 @@ Upstream-Name: vAuth
 Upstream-Contact: Lamellix Labs <admin@lamellix.com>
 Source: https://github.com/lamellixlabs/vAuth
 Comment:
- This packaging under packaging/debian/vauth-0.1.0 is UNRELEASED. The copyright
- holders and redistribution terms
- for client/assets/*.json must be established before public distribution.
- Binary builds that statically incorporate Slint must also ship the exact
- Slint license and third-party notices corresponding to the linked SDK.
+ The statically linked vauth-ui binary incorporates the Slint 1.19.0 C++ SDK
+ under GPL-3.0-only. Its distributor must provide corresponding source and
+ notices for Slint 1.19.0 and its statically incorporated dependencies. The
+ vAuth source remains MIT-licensed.
 
 Files: *
 Copyright: 2026 Efim Belorusets
@@ -30,9 +29,25 @@ License: MIT
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  SOFTWARE.
 
-Files: client/assets/*.json
-Copyright: FIXME
-License: FIXME
- The provenance and redistribution terms for these animation documents are not
- yet established. This paragraph is an explicit release blocker and must not
- be replaced with an assumed license.
+Files: client/assets/success.json
+ client/assets/fail.json
+Copyright: Yogesh Pal
+License: Lottie-Simple
+
+Files: client/assets/pending.json
+Copyright: respective LottieFiles contributor
+License: Lottie-Simple
+
+License: Lottie-Simple
+ Permission is granted to download, reproduce, modify, publish, distribute,
+ publicly display, and publicly digitally perform public animation files made
+ available for download by LottieFiles, including for commercial purposes.
+ Distribution and derivative works must remain subject to the same license
+ terms. The files may not be collected or compiled to reproduce or develop a
+ similar or competing service. The files are provided without warranty.
+ .
+ The complete license is available at https://lottiefiles.com/page/license.
+
+License: GPL-3.0-only
+ On Debian systems, the complete GNU General Public License version 3 is
+ available in /usr/share/common-licenses/GPL-3.

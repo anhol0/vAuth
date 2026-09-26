@@ -4,6 +4,12 @@ set -e
 #DEBHELPER#
 
 if [ "$1" = "configure" ] && [ -z "${DPKG_ROOT:-}" ]; then
+    if [ -d /run/systemd/system ]; then
+        if ! systemctl --system daemon-reload; then
+            echo "vauth: warning: could not reload systemd units" >&2
+        fi
+    fi
+
     if ! modprobe --use-blacklist uhid; then
         echo "vauth: warning: could not load the uhid kernel module" >&2
     elif [ ! -e /sys/class/misc/uhid ]; then

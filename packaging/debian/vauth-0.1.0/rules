@@ -22,4 +22,4 @@ override_dh_auto_configure:
 
 override_dh_installsystemd:
 	dh_installsysusers
-	dh_installsystemd --no-enable --no-start
+	dh_installsystemd --no-enable --no-start --no-stop-on-upgrade

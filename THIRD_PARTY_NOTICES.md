@@ -6,10 +6,11 @@ license terms.
 
 The vAuth source tree does not vendor these libraries. Normal Linux packages
 link against separately installed shared libraries, except that CLI11 and
-nlohmann/json are header-only dependencies whose code is compiled into vAuth.
-A distributor that bundles or statically links a dependency must verify the
-exact version it ships and include that version's complete license, notices,
-and corresponding source or relinking material where its license requires them.
+nlohmann/json are header-only dependencies whose code is compiled into vAuth
+and the Debian package links Slint statically. A distributor that bundles or
+statically links a dependency must verify the exact version it ships and
+include that version's complete license, notices, and corresponding source or
+relinking material where its license requires them.
 
 This file covers direct library dependencies. The operating-system packages
 that provide them may have additional, separately licensed dependencies.
@@ -168,18 +169,26 @@ the separately licensed systemd executables.
 ## Slint
 
 - Project: [Slint](https://slint.dev/)
-- License selected for `vauth-ui`: [Slint Royalty-free Desktop, Mobile, and
-  Web Applications License 2.0](https://github.com/slint-ui/slint/blob/master/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md)
+- Version used by the Debian beta build: 1.19.0 C++ SDK and matching
+  `slint-compiler`
+- Corresponding upstream release:
+  [Slint v1.19.0](https://github.com/slint-ui/slint/releases/tag/v1.19.0)
+- License selected for the statically linked `vauth-ui` binary:
+  [GNU General Public License version 3 only](https://slint.dev/agreements/gpl-3.0.pdf)
 - Copyright: Copyright (c) SixtyFPS GmbH and the Slint contributors.
 
-That license requires either the `AboutSlint` widget in the application or a
-readily discoverable Slint attribution badge on a public webpage. The vAuth
-README displays and links the Slint badge. This selection applies to vAuth's
-Linux desktop UI; it does not grant rights to use Slint in an embedded product.
+The vAuth source remains available under its MIT license. A distributed
+`vauth-ui` binary that incorporates Slint under this license is a GPL-3.0-only
+combined work. Its distributor must provide the complete GPLv3 license and the
+corresponding source for Slint 1.19.0 and other incorporated GPLv3 material.
+The compiler and C++ SDK used for the beta package came from the same Slint
+1.19.0 release. Debian systems provide the license text in
+`/usr/share/common-licenses/GPL-3`.
 
-Slint is also available under GPL-3.0-only and a commercial license. A
-distributor choosing one of those alternatives must comply with that license
-instead.
+Slint is also available under its royalty-free desktop/mobile/web license and
+a commercial license. Selecting either alternative for a build requires
+complying with that license instead; do not combine notices from different
+licensing choices as though they were cumulative permissions.
 
 ## rlottie
 
@@ -195,3 +204,50 @@ and any notices for code included in that build.
 
 The rlottie library license does not cover the Lottie animation documents in
 `client/assets/`; those assets require separate author and license provenance.
+
+## LottieFiles animation assets
+
+- Project: [LottieFiles](https://lottiefiles.com/)
+- License: [Lottie Simple License](https://lottiefiles.com/page/license)
+- `client/assets/success.json`: ["Security status - Safe" by Yogesh
+  Pal](https://lottiefiles.com/free-animation/security-status-safe-CePJPAwLVx)
+- `client/assets/fail.json`: ["Security status - risk" by Yogesh
+  Pal](https://lottiefiles.com/free-animation/security-status-risk-vpQBOFjwVX)
+- `client/assets/pending.json`: downloaded from LottieFiles as `vault.json`;
+  the original public animation page was not retained
+
+The animations were downloaded as public LottieFiles animations. LottieFiles
+does not embed a license in each downloaded JSON document; its Lottie Simple
+License applies to public animation files made available for download on the
+site. Attribution is not required, but the known creator and source provenance
+are recorded here.
+
+### Lottie Simple License (FL 9.13.21)
+
+Copyright (c) 2021 Design Barn Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+the public animation files available for download at the LottieFiles site
+("Files") to download, reproduce, modify, publish, distribute, publicly
+display, and publicly digitally perform such Files, including for commercial
+purposes, provided that any display, publication, performance, or distribution
+of Files must contain (and be subject to) the same terms and conditions of this
+license. Modifications to Files are deemed derivative works and must also be
+expressly distributed under the same terms and conditions of this license. You
+may not purport to impose any additional or different terms or conditions on,
+or apply any technical measures that restrict exercise of, the rights granted
+under this license. This license does not include the right to collect or
+compile Files from LottieFiles to replicate or develop a similar or competing
+service.
+
+Use of Files without attributing the creator(s) of the Files is permitted under
+this license, though attribution is strongly encouraged. If attributions are
+included, such attributions should be visible to the end user.
+
+FILES ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. EXCEPT TO THE EXTENT REQUIRED BY
+APPLICABLE LAW, IN NO EVENT WILL THE CREATOR(S) OF FILES OR DESIGN BARN, INC. BE
+LIABLE ON ANY LEGAL THEORY FOR ANY SPECIAL, INCIDENTAL, CONSEQUENTIAL,
+PUNITIVE, OR EXEMPLARY DAMAGES ARISING OUT OF THIS LICENSE OR THE USE OF SUCH
+FILES.

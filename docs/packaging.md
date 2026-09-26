@@ -47,7 +47,7 @@ sudo systemctl enable --now vauth-pam-verifier.socket vauth.service
 ```
 
 The package must not combine these operations with installation. They require
-a usable TPM, site-specific FAPI configuration, and an administrator-selected
+a usable TPM, site-specific FAPI configuration, and an administrator-confirmed
 recovery secret, and provisioning failure must leave package installation
 successful and diagnosable.
 
@@ -74,9 +74,10 @@ An upgrade must preserve:
 - locally modified PAM configuration.
 
 It must never reprovision security objects or regenerate authorization. The
-package may reload system integration and try-restart `vauth.service` only when
-the service was already active. An upgrade must not enable a previously
-disabled unit.
+package reloads system integration but must not stop or restart a running vAuth
+service during upgrade. The installed binary becomes active after the
+administrator next restarts the service. An upgrade must not enable a
+previously disabled unit.
 
 Any future persistent-format migration must be implemented as a separately
 tested, failure-atomic operation. Packaging scripts must not modify a credential

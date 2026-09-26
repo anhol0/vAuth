@@ -556,11 +556,12 @@ load `vauth-db-auth` only from their systemd credential directories.
 - No code path falls back to daemon stdin, a terminal prompt, `getlogin()`, or a
   local dialog when the UI agent is absent.
 
-## Release-completion work
+## Post-beta follow-up work
 
-The target architecture requires the following remaining implementation work:
+The beta architecture is implemented. Further hardening work is intentionally
+limited to:
 
-1. Exercise the hardened units as installed services with every supported PAM
-   module and finalize socket activation limits.
-2. Complete distribution-package integration, recovery documentation, and
-   installed-system tests.
+1. Validate additional administrator-selected PAM modules and add narrowly
+   scoped sandbox overrides only where their requirements are demonstrated.
+2. Finalize explicit socket activation limits and expand automated
+   installed-system tests beyond the manual beta validation.

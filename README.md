@@ -5,7 +5,7 @@
 </p>
 
 [![Built with Slint](https://img.shields.io/badge/Built%20with-Slint-2379F4?logo=slint&logoColor=white)](https://slint.dev/)
-[![License](https://img.shields.io/github/license/anhol0/vAuth)](https://github.com/anhol0/vAuth/blob/main/LICENSE)
+[![License](https://img.shields.io/github/license/lamellixlabs/vAuth)](https://github.com/lamellixlabs/vAuth/blob/main/LICENSE)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)
 ![Linux](https://img.shields.io/badge/platform-Linux-FCC624?logo=linux&logoColor=black)
 ![FIDO2](https://img.shields.io/badge/FIDO2-CTAP2.0-blue)
@@ -27,12 +27,13 @@ USB authenticator. vAuth uses the TPM for credential keys, PAM for user
 verification, and an encrypted local credential store. A fingerprint reader is
 optional; password verification remains available through PAM. Even though  
 the officially tested authentication methods include only password and fingerprint,  
-you can use virtually any authentication method of your convenience, including  
-Smart Cards, NFC, facial recognition through Howdy, and many more.
+other PAM modules may additional set up and are not part of the beta's tested   
+configuration.
 
 > [!IMPORTANT]
-> vAuth is pre-release software. Distribution packages and automated first-run
-> setup are still in progress.
+> vAuth is beta software. Installation intentionally does not provision TPM
+> objects, create secrets, or enable services; complete the documented setup
+> before enabling the daemon.
 
 ## Requirements
 

@@ -20,8 +20,14 @@ if [ ! -f "$VAUTH_SLINT_DIR/SlintConfig.cmake" ]; then
     echo "SlintConfig.cmake was not found under VAUTH_SLINT_DIR" >&2
     exit 2
 fi
+slint_version_file=$VAUTH_SLINT_DIR/SlintConfigVersion.cmake
+if [ ! -f "$slint_version_file" ] || \
+   ! grep -q 'set(PACKAGE_VERSION "1\.19\.0")' "$slint_version_file"; then
+    echo "The Debian beta package requires the Slint 1.19.0 C++ SDK." >&2
+    exit 2
+fi
 
-for command_name in dpkg-buildpackage dpkg-parsechangelog git lintian tar; do
+for command_name in dpkg-buildpackage dpkg-parsechangelog git grep lintian tar; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "Required command is missing: $command_name" >&2
         exit 2

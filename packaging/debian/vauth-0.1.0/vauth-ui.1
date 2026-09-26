@@ -14,6 +14,9 @@ until the daemon sends an interaction request. Closing an active interaction
 window cancels that interaction; otherwise the program continues waiting for
 later requests.
 .PP
+Firefox may retry an authenticator request cancelled through the vAuth window.
+For Firefox, cancel through the browser's own authentication prompt instead.
+.PP
 The UI agent does not authenticate users itself. Passwords are passed through
 a bounded, one-shot file descriptor to the daemon's PAM verifier and are
 discarded after submission.

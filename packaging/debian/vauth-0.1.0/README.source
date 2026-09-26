@@ -10,10 +10,10 @@ without modifying the checkout.
 Static Slint prerequisite
 -------------------------
 
-The binary package links Slint statically so installed systems do not need a
-Slint runtime package. The local builder must provide a Slint C++ SDK built
-with BUILD_SHARED_LIBS=OFF and set VAUTH_SLINT_DIR to the directory containing
-SlintConfig.cmake, for example:
+The binary package links Slint 1.19.0 statically so installed systems do not
+need a Slint runtime package. The local builder must provide the Slint 1.19.0
+C++ SDK built with BUILD_SHARED_LIBS=OFF and its matching compiler, then set
+VAUTH_SLINT_DIR to the directory containing SlintConfig.cmake, for example:
 
   VAUTH_SLINT_DIR=/opt/slint-static/lib/cmake/Slint \
     packaging/debian/vauth-0.1.0/build-local.sh
@@ -23,14 +23,18 @@ Debian package exists. Consequently this initial packaging is suitable for
 local beta packages and a controlled project repository, but it is not yet a
 self-contained Debian archive source package.
 
-Release blockers
-----------------
+Distribution licensing
+----------------------
 
-The three JSON animation documents under client/assets do not yet have recorded
-provenance and redistribution terms. Public packages must not be distributed
-until those terms are established or the assets are replaced.
+The three JSON animation documents under client/assets were downloaded as
+public LottieFiles animations and are distributed under the Lottie Simple
+License. THIRD_PARTY_NOTICES.md records the known creators, sources, and the
+applicable terms. The original page for pending.json was not retained; its
+download name was vault.json and attribution is not required by the license.
 
-A statically linked vauth-ui also incorporates Slint. Public binary packages
-must include the exact Slint license and all notices corresponding to the SDK
-used for that build. See THIRD_PARTY_NOTICES.md for the project's current
-license selection and remaining notice work.
+A statically linked vauth-ui incorporates Slint 1.19.0 under GPL-3.0-only. The
+vAuth source remains MIT-licensed, but the combined vauth-ui binary is
+distributed under GPL-3.0-only. A public binary distributor must provide the
+complete GPLv3 license and corresponding source for Slint 1.19.0, including
+applicable notices and source for statically incorporated dependencies. See
+THIRD_PARTY_NOTICES.md and the Debian copyright file.
