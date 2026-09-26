@@ -5,6 +5,7 @@
 namespace vauthctl {
 
 inline constexpr std::string_view systemdRunPath = "@SYSTEMD_RUN_EXECUTABLE@";
+inline constexpr std::string_view systemdCredsPath = "@SYSTEMD_CREDS_EXECUTABLE@";
 inline constexpr std::string_view installedExecutablePath = "@VAUTHCTL_INSTALLED_PATH@";
 inline constexpr std::string_view fapiSystemDirectory = "@VAUTH_FAPI_SYSTEM_DIR@";
 

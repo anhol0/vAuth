@@ -1,6 +1,7 @@
 include(GNUInstallDirs)
 
 find_program(SYSTEMD_RUN_EXECUTABLE systemd-run REQUIRED)
+find_program(SYSTEMD_CREDS_EXECUTABLE systemd-creds REQUIRED)
 set(VAUTHCTL_INSTALLED_PATH "${CMAKE_INSTALL_FULL_BINDIR}/vauthctl")
 configure_file(
     src/managed_config.hpp.in
@@ -50,6 +51,18 @@ add_library(vauthctl_managed_execution
     src/managed_execution.cpp
 )
 
+add_library(vauthctl_provisioning
+    src/provisioning.cpp
+)
+
+target_include_directories(vauthctl_provisioning PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(vauthctl_provisioning PUBLIC
+    vauth_storage
+)
+
 target_include_directories(vauthctl_managed_execution PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
@@ -66,6 +79,7 @@ target_link_libraries(vauthctl PRIVATE
     vauthctl_application
     vauthctl_commands
     vauthctl_managed_execution
+    vauthctl_provisioning
 )
 
 target_include_directories(vauthctl PRIVATE
@@ -144,6 +158,23 @@ if(BUILD_TESTING)
     add_test(
         NAME vauthctl_managed_execution
         COMMAND vauthctl_managed_execution_tests
+    )
+
+    add_executable(vauthctl_provisioning_tests
+        tests/provisioning_test.cpp
+    )
+
+    target_include_directories(vauthctl_provisioning_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/tests
+    )
+
+    target_link_libraries(vauthctl_provisioning_tests PRIVATE
+        vauthctl_provisioning
+    )
+
+    add_test(
+        NAME vauthctl_provisioning
+        COMMAND vauthctl_provisioning_tests
     )
 
     add_test(

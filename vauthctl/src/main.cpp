@@ -4,6 +4,7 @@
 #include "managed_config.hpp"
 #include "managed_execution.hpp"
 #include "options.hpp"
+#include "provisioning.hpp"
 
 #include <cstdint>
 #include <exception>
@@ -13,6 +14,7 @@
 #include <sdbus-c++/IConnection.h>
 #include <string>
 #include <string_view>
+#include <unistd.h>
 
 int main(int argc, char** argv) {
 	const ParseResult parsed = parse_options(argc, argv);
@@ -32,6 +34,19 @@ int main(int argc, char** argv) {
 					return get_status(*connection);
 				},
 			.managed = [&managedConfig](const Options& options) {
+				if(options.command == Command::provision) {
+					vauthctl::ensure_provisioning_authorization(
+						{
+							.systemdCredsPath = vauthctl::systemdCredsPath,
+							.encryptedCredentialPath =
+								"/etc/credstore.encrypted/vauth-db-auth",
+						},
+						std::cin,
+						std::cout,
+						::isatty(STDIN_FILENO) != 0 &&
+							::isatty(STDOUT_FILENO) != 0
+					);
+				}
 				return vauthctl::run_managed_command(options, managedConfig);
 			},
 			.provision = [] {

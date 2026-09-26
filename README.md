@@ -157,17 +157,14 @@ After confirming that FAPI is usable and permits creation of Owner-authorized
 NV indices, create vAuth's encrypted authorization credential and TPM objects:
 
 ```sh
-sudo install -d -m 0700 /etc/credstore.encrypted
-systemd-ask-password "Choose a vAuth recovery secret:" | \
-  sudo systemd-creds encrypt --name=vauth-db-auth - \
-  /etc/credstore.encrypted/vauth-db-auth
-
 sudo systemctl stop vauth.service
 sudo vauthctl provision
 sudo systemctl enable --now vauth-pam-verifier.socket vauth.service
 ```
 
-Keep the authorization secret somewhere safe. Losing it—or clearing the
+On first use, `vauthctl provision` generates a 192-bit authorization and shows
+it once. Save it securely and confirm the prompt; vAuth then encrypts it with
+`systemd-creds` before creating the TPM objects. Losing it—or clearing the
 TPM—makes existing vAuth credentials unrecoverable.
 
 Start `vauth-ui` in the desktop session and check the installation:
