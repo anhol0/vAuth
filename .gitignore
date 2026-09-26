@@ -9,3 +9,4 @@ compile_commands.json
 .clang-format
 ROADMAP.md
 tools/
+*.zip
